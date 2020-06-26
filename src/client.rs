@@ -15,8 +15,6 @@ impl Client {
         Ok(Client{
             addr
         })
-        
-
     }
 
     pub async fn run(
@@ -30,6 +28,7 @@ impl Client {
         } else {
             "[::]:0"
         };
+
         let socket = UdpSocket::bind(&bind_addr).await?;
         socket.connect(self.addr).await?;
         let (mut r, mut w) = socket.split();

@@ -4,38 +4,39 @@ use std::error::Error;
 use std::net::SocketAddr;
 use std::env;
 use tokio::net::UdpSocket;
-use tokio_util::codec::{BytesCodec, FramedRead, FramedWrite};
-use futures::StreamExt;
+use std::str;
+use std::collections::HashMap;
 
-mod client;
 mod server;
+// mod listener;
 
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let server_addr = "127.0.0.1:8080";
     let addr = env::args()
         .nth(1)
         .unwrap_or_else(|| "127.0.0.1:8080".to_string());
-    
-    let server_addr: SocketAddr = server_addr.parse::<SocketAddr>()?;
 
-    let socket = UdpSocket::bind(&addr).await?;
+    // Build HashMap of servers
+    let mut clients = server::Server::create_from_file();
+    println!("{:?}", &clients);
+
+    // Create UDP listener for clients
+    let mut socket = UdpSocket::bind(&addr).await?;
     println!("Listening on: {}", socket.local_addr()?);
+    let mut buf = [0; 1024];
+    let mut to_send: Option<(usize, SocketAddr)> = None; 
+    loop {  
+        // When data has been received over the socket, the packet will be dealt with
+        // Here, it will be sent onto a server connected to the 
+        if let Some((size, peer)) = to_send {
+            // Stabilize will take packet, and send it onto one of its servers. IN PROGRESS
+            println!("Data Received from {}: {}", &peer, str::from_utf8(&buf[..size])?);
 
-    let client = client::Client::new(server_addr).await?;
-    let server = server::Server::new(socket, vec![0; 1024], None);
+        }
+    
+        // Stabilize listens for data over the socket
+        to_send = Some(socket.recv_from(&mut buf).await.unwrap());
+    }
 
-    let stdin = FramedRead::new(tokio::io::stdin(), BytesCodec::new());
-    let stdin = stdin.map(|i| i.map(|bytes| bytes.freeze()));
-    let stdout = FramedWrite::new(tokio::io::stdout(), BytesCodec::new());
-
-    // This starts the server task.
-    tokio::spawn(async move {
-        server.run().await.unwrap();
-    });
-
-    client.run(stdin,stdout).await?;
-
-    Ok(())
 }

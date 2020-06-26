@@ -1,43 +1,43 @@
 use std::net::SocketAddr;
-use std::io;
-use tokio::net::UdpSocket;
+use tokio_util::codec::{BytesCodec, FramedRead, FramedWrite};
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{self, prelude::*, BufReader};
 
+#[derive(Debug)]
+#[derive(Hash)]
 pub struct Server {
-    socket: UdpSocket,
-    buf: Vec<u8>,
-    to_send: Option<(usize, SocketAddr)>,
+    addr: SocketAddr,
 }
 
 impl Server {
-
-    pub fn new(socket:UdpSocket, buf: Vec<u8>, to_send: Option<(usize, SocketAddr)>) -> Server {
-        Server{
-            socket,
-            buf,
-            to_send
+    pub fn new(addr: SocketAddr) -> Server{
+        Server {
+            addr
         }
     }
 
-    pub async fn run(self) -> Result<(), io::Error> {
-        let Server {
-            mut socket,
-            mut buf,
-            mut to_send,
-        } = self;
-
-        loop {
-            // First we check to see if there's a message we need to echo back.
-            // If so then we try to send it back to the original source, waiting
-            // until it's writable and we're able to do so.
-            if let Some((size, peer)) = to_send {
-                let amt = socket.send_to(&buf[..size], &peer).await?;
-
-                println!("Echoed {}/{} bytes to {}", amt, size, peer);
-            }
-
-            // If we're here then `to_send` is `None`, so we take a look for the
-            // next message we're going to echo back.
-            to_send = Some(socket.recv_from(&mut buf).await?);
+    pub fn create_from_file() -> HashMap<Server, Option<std::net::SocketAddr>>{
+        // Open up file from config path
+        // Go through the config and create a HashMap which contains Server structs
+        // based on the addresses in the config file
+        let mut map = HashMap::new();
+        let file = File::open(".config").unwrap();
+        let reader = BufReader::new(file);
+        for line in reader.lines() {
+            let addr = line.unwrap();
+            println!("{}", &addr);
+            let addr = addr.parse::<SocketAddr>().unwrap();
+            map.insert(Server::new(addr), None);
         }
+        map
     }
 }
+
+impl PartialEq for Server {
+    fn eq(&self, other: &Self) -> bool {
+        self.addr == other.addr
+    }
+}
+
+impl Eq for Server {}
