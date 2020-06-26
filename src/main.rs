@@ -4,9 +4,7 @@ use std::error::Error;
 use std::net::SocketAddr;
 use std::env;
 use tokio::net::UdpSocket;
-// use tokio::time::{Duration, Instant, delay_for};
 use tokio_util::codec::{BytesCodec, FramedRead, FramedWrite};
-// use tokio::net::udp::{RecvHalf, SendHalf};
 use futures::StreamExt;
 
 mod client;
