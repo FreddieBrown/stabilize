@@ -17,9 +17,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .nth(1)
         .unwrap_or_else(|| "127.0.0.1:8080".to_string());
 
-    // Build HashMap of servers
+    // Build Vec of servers
     let mut clients = server::Server::create_from_file();
     println!("{:?}", &clients);
+    let mut counter = 0;
 
     // Create UDP listener for clients
     let mut socket = UdpSocket::bind(&addr).await?;
@@ -32,9 +33,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         if let Some((size, peer)) = to_send {
             // Stabilize will take packet, and send it onto one of its servers. IN PROGRESS
             println!("Data Received from {}: {}", &peer, str::from_utf8(&buf[..size])?);
-
+            let (client, mut val) = clients[counter];
+            val = Some(peer);
+            clients[counter] = (client, val);
+            counter += 1;
+            if counter == clients.len() {
+                counter = 0;
+            }
         }
-    
+        println!("{:?}", &clients);
         // Stabilize listens for data over the socket
         to_send = Some(socket.recv_from(&mut buf).await.unwrap());
     }

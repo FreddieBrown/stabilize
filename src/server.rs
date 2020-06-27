@@ -6,6 +6,7 @@ use std::io::{self, prelude::*, BufReader};
 
 #[derive(Debug)]
 #[derive(Hash)]
+#[derive(Copy, Clone)]
 pub struct Server {
     addr: SocketAddr,
 }
@@ -17,20 +18,20 @@ impl Server {
         }
     }
 
-    pub fn create_from_file() -> HashMap<Server, Option<std::net::SocketAddr>>{
+    pub fn create_from_file() -> Vec<(Server, Option<std::net::SocketAddr>)>{
         // Open up file from config path
         // Go through the config and create a HashMap which contains Server structs
         // based on the addresses in the config file
-        let mut map = HashMap::new();
+        let mut list = Vec::new();
         let file = File::open(".config").unwrap();
         let reader = BufReader::new(file);
         for line in reader.lines() {
             let addr = line.unwrap();
             println!("{}", &addr);
             let addr = addr.parse::<SocketAddr>().unwrap();
-            map.insert(Server::new(addr), None);
+            list.push((Server::new(addr), None));
         }
-        map
+        list
     }
 }
 
