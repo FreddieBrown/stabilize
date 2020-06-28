@@ -1,7 +1,10 @@
 use std::{
-    net::SocketAddr
+    net::SocketAddr,
+    fs::File,
+    io::{prelude::*, BufReader}
 };
-use std::collections::HashMap;
+
+use tokio::sync::RwLock;
 
 pub struct ServerInfo {
     alive: bool
@@ -28,8 +31,8 @@ impl Server {
 }
 
 pub struct ServerPool {
-    servers: Vec<(Server, ServerInfo)>,
-    current: u8
+    servers: Vec<(Server, RwLock<ServerInfo>)>,
+    current: RwLock<usize>
 }
 
 impl ServerPool {
@@ -44,18 +47,42 @@ impl ServerPool {
             let addr = line.unwrap();
             println!("{}", &addr);
             let addr = addr.parse::<SocketAddr>().unwrap();
-            list.push((Server::new(addr), ServerInfo::new()));
+            list.push((Server::new(addr), RwLock::new(ServerInfo::new())));
         }
         ServerPool {
             servers: list,
-            current: 0
+            current: RwLock::new(0)
         }
     }
 
     pub fn new() -> ServerPool {
         ServerPool{
             servers: Vec::new(),
-            current: 0
+            current: RwLock::new(0)
         }
     }
+
+
+    pub async fn get_next(&self) -> &Server{
+        let mut r_curr = self.current.write().await;
+
+        loop {
+            let (server, server_info) = &self.servers[*r_curr];
+            let server_info = server_info.read().await;
+            if !server_info.alive {
+                *r_curr += 1;
+
+                if *r_curr == self.servers.len() {
+                    *r_curr = 0;
+                }
+            }
+            else {
+                *r_curr += 1;
+                return server;
+            }
+        }
+    }
+
+    // Write health checking functions
+
 }
