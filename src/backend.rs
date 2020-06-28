@@ -62,6 +62,10 @@ impl ServerPool {
         }
     }
 
+    pub fn add(&mut self, server: Server){
+        self.servers.push((server, RwLock::new(ServerInfo::new())));
+    }
+
 
     pub async fn get_next(&self) -> &Server{
         let mut r_curr = self.current.write().await;
