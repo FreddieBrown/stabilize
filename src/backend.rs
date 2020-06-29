@@ -1,10 +1,17 @@
 use std::{
     net::SocketAddr,
     fs::File,
-    io::{prelude::*, BufReader}
+    io::{prelude::*, BufReader},
+    sync::Arc,
+    future::Future
 };
 
 use tokio::sync::RwLock;
+use anyhow::{anyhow, Context, Result};
+use futures::{stream::FuturesUnordered, StreamExt};
+use rustls;
+
+pub const CUSTOM_PROTO: &[&[u8]] = &[b"cstm-01"];
 
 pub struct ServerInfo {
     alive: bool
@@ -86,7 +93,76 @@ impl ServerPool {
             }
         }
     }
-
     // Write health checking functions
 
+}
+
+pub struct ServerConnect {
+    endpoint: quinn::Endpoint,
+    connection: quinn::Connection,
+}
+
+impl ServerConnect {
+
+    pub async fn connect(&mut self) -> Result<(quinn::SendStream, quinn::RecvStream)>{
+        Ok(self.connection.open_bi().await?)
+    }
+
+    pub async fn close(&self) {
+        self.endpoint.close(0u8.into(), b"done");
+    }
+
+    pub async fn start(addr: &SocketAddr) -> Result<ServerConnect>{
+        let mut crypto = rustls::ClientConfig::new();
+        crypto.versions = vec![rustls::ProtocolVersion::TLSv1_3];
+
+        // Change this to make it more secure
+        crypto.dangerous()
+            .set_certificate_verifier(Arc::new(insecure::NoCertificateVerification {}));
+
+        let config = quinn::ClientConfig {
+            transport: Arc::new(quinn::TransportConfig::default()),
+            crypto: Arc::new(crypto),
+        };
+        let mut client_config = quinn::ClientConfigBuilder::new(config);
+    
+        client_config.protocols(CUSTOM_PROTO);
+    
+        let (endpoint, _) = quinn::Endpoint::builder()
+            .bind(&"[::]:0".parse().unwrap())
+            .context("Could not bind client endpoint")?;
+        
+        let conn = endpoint
+            .connect_with(client_config.build(), addr, "localhost")?
+            .await
+            .context(format!("Could not connect to {}", addr))?;
+            
+        let quinn::NewConnection {
+            connection: conn, ..
+        } = { conn};
+
+        Ok(ServerConnect{
+            endpoint,
+            connection: conn
+        })
+    }
+}
+
+mod insecure {
+    use rustls;
+    use webpki;
+
+    pub struct NoCertificateVerification {}
+
+    impl rustls::ServerCertVerifier for NoCertificateVerification {
+        fn verify_server_cert(
+            &self,
+            _roots: &rustls::RootCertStore,
+            _presented_certs: &[rustls::Certificate],
+            _dns_name: webpki::DNSNameRef<'_>,
+            _ocsp: &[u8],
+        ) -> Result<rustls::ServerCertVerified, rustls::TLSError> {
+            Ok(rustls::ServerCertVerified::assertion())
+        }
+    }
 }

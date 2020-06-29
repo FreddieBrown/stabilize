@@ -8,6 +8,7 @@ use anyhow::{anyhow, Result};
 use quinn::ServerConfig;
 
 
+
 pub async fn build_and_run_server(port: u16, server_config: ServerConfig) -> Result<()> {
     let mut endpoint_builder = quinn::Endpoint::builder();
     endpoint_builder.listen(server_config.clone());
@@ -63,6 +64,12 @@ async fn handle_conn(conn: quinn::Connecting) -> Result<()> {
     Ok(())
 }
 
+// This is where send/recv streams from client are handled
+// This function should get a server from the pool and start a connection 
+// with it. This should be done after initial message is received from the 
+// client stream. Make it into a cycle of receiving and sending information between 
+// the server and client then back to the server. This should end when the server ends 
+// its conection with the server.
 async fn handle_response(
     (mut send, mut recv): (quinn::SendStream, quinn::RecvStream),
 ) -> Result<()> {
