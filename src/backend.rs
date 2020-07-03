@@ -20,7 +20,7 @@ pub struct ServerInfo {
 impl ServerInfo {
     pub fn new () -> ServerInfo{
         ServerInfo {
-            alive: false
+            alive: true
         }
     }
 }
@@ -35,6 +35,10 @@ impl Server {
             addr
         }
     }
+
+    pub fn get_addr(&self) -> SocketAddr {
+        self.addr.clone()
+    } 
 }
 
 pub struct ServerPool {
@@ -48,7 +52,7 @@ impl ServerPool {
         // Go through the config and create a HashMap which contains Server structs
         // based on the addresses in the config file
         let mut list = Vec::new();
-        let file = File::open(".config").unwrap();
+        let file = File::open("./.config").unwrap();
         let reader = BufReader::new(file);
         for line in reader.lines() {
             let addr = line.unwrap();
@@ -76,11 +80,13 @@ impl ServerPool {
 
     pub async fn get_next(&self) -> &Server{
         let mut r_curr = self.current.write().await;
+        println!("Getting a server");
 
         loop {
             let (server, server_info) = &self.servers[*r_curr];
             let server_info = server_info.read().await;
             if !server_info.alive {
+                println!("Server is not alive: {}", server.get_addr());
                 *r_curr += 1;
 
                 if *r_curr == self.servers.len() {
