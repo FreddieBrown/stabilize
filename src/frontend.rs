@@ -62,14 +62,9 @@ async fn handle_conn(conn: quinn::Connecting, server: SocketAddr) -> Result<()> 
                 Ok(conn) => conn,
                 Err(_) => panic!("Server isn't alive"),
             };
-        
-            let server_streams  = match server_conn.connect().await {
-                Ok(s) => s,
-                Err(_) => panic!("Cannot get streams for server connection") 
-            };
             // Spawn message handling task
             tokio::spawn(
-                handle_response(client_streams, server_streams)
+                handle_response(client_streams, server_conn)
                     .unwrap_or_else(move |e| eprintln!("Response failed: {}", e)),
             );
         }
@@ -90,9 +85,14 @@ async fn handle_conn(conn: quinn::Connecting, server: SocketAddr) -> Result<()> 
 // its conection with the server.
 async fn handle_response(
     (mut client_send, mut client_recv): (quinn::SendStream, quinn::RecvStream),
-    (mut server_send, mut server_recv): (quinn::SendStream, quinn::RecvStream)
+    mut server_conn: ServerConnect
 ) -> Result<()> {
     println!("received new message");
+
+    let (mut server_send, mut server_recv)  = match server_conn.connect().await {
+        Ok(s) => s,
+        Err(_) => panic!("Cannot get streams for server connection") 
+    };
 
     let mut incoming = bytes::BytesMut::new();
     let mut client_recv_buffer = [0 as u8; 1024]; // 1 KiB socket recv buffer
@@ -129,7 +129,7 @@ async fn handle_response(
 
     println!("closing send stream...");
     client_send.finish().await?;
-    server_send.finish().await?;
+    server_conn.close().await;
 
     println!("response handled!\n");
     Ok(())

@@ -2,13 +2,11 @@ use std::{
     net::SocketAddr,
     fs::File,
     io::{prelude::*, BufReader},
-    sync::Arc,
-    future::Future
+    sync::Arc
 };
 
 use tokio::sync::RwLock;
-use anyhow::{anyhow, Context, Result};
-use futures::{stream::FuturesUnordered, StreamExt};
+use anyhow::{Context, Result};
 use rustls;
 
 pub const CUSTOM_PROTO: &[&[u8]] = &[b"cstm-01"];
