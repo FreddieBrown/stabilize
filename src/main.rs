@@ -15,7 +15,7 @@ mod backend;
 #[allow(unused)]
 // From Quinn example
 #[derive(StructOpt, Debug)]
-#[structopt(name = "server")]
+#[structopt(name = "stabilize")]
 struct Opt {
     /// file to log TLS keys to for debugging
     #[structopt(long = "keylog")]
