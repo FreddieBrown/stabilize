@@ -2,7 +2,7 @@
 
 UDP load balancer written in Rust
 
-To run, use the command `cargo run -- --cert signed.pem --key signed.key --listen 5000`
+To run, use the command `cargo run --bin main -- --cert signed.pem --key signed.key --listen 5000`
 
 For help: 
 

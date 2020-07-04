@@ -1,47 +1,43 @@
 use std::{
-    net::SocketAddr,
     fs::File,
     io::{prelude::*, BufReader},
-    sync::Arc
+    net::SocketAddr,
+    sync::Arc,
 };
 
-use tokio::sync::RwLock;
 use anyhow::{Context, Result};
 use rustls;
+use tokio::sync::RwLock;
 
 pub const CUSTOM_PROTO: &[&[u8]] = &[b"cstm-01"];
 
 pub struct ServerInfo {
-    alive: bool
+    alive: bool,
 }
 
 impl ServerInfo {
-    pub fn new () -> ServerInfo{
-        ServerInfo {
-            alive: true
-        }
+    pub fn new() -> ServerInfo {
+        ServerInfo { alive: true }
     }
 }
 
 pub struct Server {
-    addr: SocketAddr
+    addr: SocketAddr,
 }
 
 impl Server {
     pub fn new(addr: SocketAddr) -> Server {
-        Server{
-            addr
-        }
+        Server { addr }
     }
 
     pub fn get_addr(&self) -> SocketAddr {
         self.addr.clone()
-    } 
+    }
 }
 
 pub struct ServerPool {
     servers: Vec<(Server, RwLock<ServerInfo>)>,
-    current: RwLock<usize>
+    current: RwLock<usize>,
 }
 
 impl ServerPool {
@@ -60,23 +56,22 @@ impl ServerPool {
         }
         ServerPool {
             servers: list,
-            current: RwLock::new(0)
+            current: RwLock::new(0),
         }
     }
 
     pub fn new() -> ServerPool {
-        ServerPool{
+        ServerPool {
             servers: Vec::new(),
-            current: RwLock::new(0)
+            current: RwLock::new(0),
         }
     }
 
-    pub fn add(&mut self, server: Server){
+    pub fn add(&mut self, server: Server) {
         self.servers.push((server, RwLock::new(ServerInfo::new())));
     }
 
-
-    pub async fn get_next(&self) -> &Server{
+    pub async fn get_next(&self) -> &Server {
         let mut r_curr = self.current.write().await;
         println!("Getting a server");
 
@@ -90,15 +85,13 @@ impl ServerPool {
                 if *r_curr == self.servers.len() {
                     *r_curr = 0;
                 }
-            }
-            else {
+            } else {
                 *r_curr += 1;
                 return server;
             }
         }
     }
     // Write health checking functions
-
 }
 
 pub struct ServerConnect {
@@ -107,8 +100,7 @@ pub struct ServerConnect {
 }
 
 impl ServerConnect {
-
-    pub async fn connect(&mut self) -> Result<(quinn::SendStream, quinn::RecvStream)>{
+    pub async fn connect(&mut self) -> Result<(quinn::SendStream, quinn::RecvStream)> {
         Ok(self.connection.open_bi().await?)
     }
 
@@ -116,12 +108,13 @@ impl ServerConnect {
         self.endpoint.close(0u8.into(), b"done");
     }
 
-    pub async fn start(addr: &SocketAddr) -> Result<ServerConnect>{
+    pub async fn start(addr: &SocketAddr) -> Result<ServerConnect> {
         let mut crypto = rustls::ClientConfig::new();
         crypto.versions = vec![rustls::ProtocolVersion::TLSv1_3];
 
         // Change this to make it more secure
-        crypto.dangerous()
+        crypto
+            .dangerous()
             .set_certificate_verifier(Arc::new(insecure::NoCertificateVerification {}));
 
         let config = quinn::ClientConfig {
@@ -129,25 +122,21 @@ impl ServerConnect {
             crypto: Arc::new(crypto),
         };
         let mut client_config = quinn::ClientConfigBuilder::new(config);
-    
         client_config.protocols(CUSTOM_PROTO);
-    
         let (endpoint, _) = quinn::Endpoint::builder()
             .bind(&"[::]:0".parse().unwrap())
             .context("Could not bind client endpoint")?;
-        
         let conn = endpoint
             .connect_with(client_config.build(), addr, "localhost")?
             .await
             .context(format!("Could not connect to {}", addr))?;
-            
         let quinn::NewConnection {
             connection: conn, ..
-        } = { conn};
+        } = { conn };
 
-        Ok(ServerConnect{
+        Ok(ServerConnect {
             endpoint,
-            connection: conn
+            connection: conn,
         })
     }
 }
