@@ -8,7 +8,7 @@ use std::time::Duration;
 pub const CUSTOM_PROTO: &[&[u8]] = &[b"cstm-01"];
 
 fn main() {
-    let exit_code = if let Err(e) = run(true) {
+    let exit_code = if let Err(e) = main_run(true) {
         eprintln!("ERROR: {}", e);
         1
     } else {
@@ -17,10 +17,13 @@ fn main() {
 
     std::process::exit(exit_code);
 }
-
 #[tokio::main]
-async fn run(while_toggle: bool) -> Result<()> {
-    tracing_subscriber::fmt::init();
+pub async fn main_run(while_toggle: bool) -> Result<()> {
+    run(while_toggle, 5347).await.unwrap();
+    Ok(())
+} 
+
+pub async fn run(while_toggle: bool, sock: u16) -> Result<()> {
 
     let mut transport_config = quinn::TransportConfig::default();
     transport_config.stream_window_uni(0);
@@ -51,9 +54,9 @@ async fn run(while_toggle: bool) -> Result<()> {
 
     let server_config = server_config_builder.build();
 
-    tokio::try_join!(build_and_run_server(5347, server_config.clone(), while_toggle))?;
+    tokio::try_join!(build_and_run_server(sock, server_config.clone(), while_toggle))?;
 
-    println!("shutting down...");
+    println!("server shutting down...");
 
     Ok(())
 }
@@ -88,8 +91,6 @@ pub async fn build_and_run_server(port: u16, server_config: ServerConfig, while_
         }
     
         tokio::time::delay_for(Duration::new(2,0)).await;
-    
-        println!("Loop over");
 
     }
 

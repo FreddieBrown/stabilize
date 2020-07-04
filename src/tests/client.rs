@@ -142,7 +142,7 @@ fn generate_futures(
 ) -> FuturesUnordered<impl Future<Output = anyhow::Result<()>>> {
     let requests = FuturesUnordered::new();
 
-    for _ in 0..3 {
+    for _ in 0..1 {
         let mut cloned = client.clone();
         requests.push(async move { cloned.make_request("Hello, world!").await })
     }

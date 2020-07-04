@@ -6,6 +6,9 @@ use anyhow::{anyhow, Result};
 use futures::{StreamExt, TryFutureExt};
 use quinn::ServerConfig;
 
+/// Function will create an endpoint for clients to connect to and sets the port that
+/// it will listen to. It will then listen for a new connection and will pass off to the
+/// correct function when a connection occurs.
 pub async fn build_and_run_server(port: u16, server_config: ServerConfig) -> Result<()> {
     let mut endpoint_builder = quinn::Endpoint::builder();
     endpoint_builder.listen(server_config.clone());
@@ -18,14 +21,16 @@ pub async fn build_and_run_server(port: u16, server_config: ServerConfig) -> Res
         println!("Server listening on {}", endpoint.local_addr()?);
         incoming
     };
-
     while let Some(conn) = incoming.next().await {
-        println!("{}: new connection!", socket_addr);
+        println!("(Stabilize) {}: new connection!", socket_addr);
         let server = serverpool.get_next().await;
-        println!("Server given from server pool: {}", server.get_addr());
+        println!(
+            "(Stabilize) Server given from server pool: {}",
+            server.get_addr()
+        );
         tokio::spawn(
             handle_conn(conn, server.get_addr()).unwrap_or_else(move |e| {
-                println!("{}: connection failed: {}", socket_addr, e);
+                println!("(Stabilize) {}: connection failed: {}", socket_addr, e);
             }),
         );
     }
@@ -33,6 +38,9 @@ pub async fn build_and_run_server(port: u16, server_config: ServerConfig) -> Res
     Ok(())
 }
 
+/// This function will handle any incoming connections. It will start a connection with
+/// the Server that it is going to connects to and will pass off to handle_response when a
+/// message has been received from the client.
 async fn handle_conn(conn: quinn::Connecting, server: SocketAddr) -> Result<()> {
     let quinn::NewConnection {
         connection: _connection,
@@ -109,8 +117,7 @@ async fn handle_response(
     }
     println!("Received {} bytes from stream", client_msg_size);
 
-    let body = "To Server".as_bytes();
-    server_send.write_all(&body).await?;
+    server_send.write_all(&client_recv_buffer[0..client_msg_size]).await?;
     server_send.finish().await?;
     println!("Written to server");
 
@@ -139,5 +146,3 @@ async fn handle_response(
     println!("response handled!\n");
     Ok(())
 }
-
-fn func() {}
