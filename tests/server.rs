@@ -17,6 +17,7 @@ fn main() {
 
     std::process::exit(exit_code);
 }
+
 #[tokio::main]
 pub async fn main_run(while_toggle: bool) -> Result<()> {
     run(while_toggle, 5347).await.unwrap();

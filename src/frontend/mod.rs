@@ -63,7 +63,7 @@ async fn handle_conn(conn: quinn::Connecting, server: SocketAddr) -> Result<()> 
                 Ok(s) => s,
             };
             // Connect to backend server
-            let mut server_conn = match ServerConnect::start(&server).await {
+            let server_conn = match ServerConnect::start(&server).await {
                 Ok(conn) => conn,
                 Err(_) => panic!("Server isn't alive"),
             };

@@ -1,8 +1,9 @@
-use crate::backend::ServerConnect;
+extern crate stabilize;
+
+use stabilize::backend;
 use anyhow::{anyhow, Result};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
-use tokio_test;
 mod client;
 mod server;
 
@@ -28,7 +29,7 @@ async fn test_stab_to_server() -> Result<()> {
     let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 5378);
     println!("Server given from server pool: {}", socket_addr);
     tokio::time::delay_for(Duration::new(1, 0)).await;
-    let mut server_conn = match ServerConnect::start(&socket_addr).await {
+    let mut server_conn = match backend::ServerConnect::start(&socket_addr).await {
         Ok(conn) => conn,
         Err(_) => panic!("Server isn't alive"),
     };
