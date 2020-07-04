@@ -1,21 +1,16 @@
 #![warn(rust_2018_idioms)]
 
-use std::{
-    path::PathBuf,
-    sync::Arc,
-};
+use std::{path::PathBuf, sync::Arc};
 
-use structopt::{self, StructOpt};
 use anyhow::{anyhow, Result};
-mod frontend;
+use structopt::{self, StructOpt};
 mod backend;
-
-
+mod frontend;
 
 #[allow(unused)]
 // From Quinn example
 #[derive(StructOpt, Debug)]
-#[structopt(name = "server")]
+#[structopt(name = "stabilize")]
 struct Opt {
     /// file to log TLS keys to for debugging
     #[structopt(long = "keylog")]
@@ -65,31 +60,28 @@ async fn run(opt: Opt) -> Result<()> {
     server_config_builder.use_stateless_retry(true);
     server_config_builder.protocols(CUSTOM_PROTO); // custom protocol
 
-    // let key_path = std::path::PathBuf::from("self_signed.key");
-
     let key = std::fs::read(&opt.key.unwrap())
         .map_err(|e| anyhow!("Could not read cert key file from self_signed.key: {}", e))?;
     let key = quinn::PrivateKey::from_pem(&key)
         .map_err(|e| anyhow!("Could not create PEM from private key: {}", e))?;
 
-
-    // let cert_path = std::path::PathBuf::from("self_signed.pem");
     let cert_chain = std::fs::read(&opt.cert.unwrap())
         .map_err(|e| anyhow!("Could not read certificate chain file: {}", e))?;
     let cert_chain = quinn::CertificateChain::from_pem(&cert_chain)
         .map_err(|e| anyhow!("Could not create certificate chain: {}", e))?;
 
-
     server_config_builder.certificate(cert_chain, key)?;
 
     let server_config = server_config_builder.build();
 
-    tokio::try_join!(frontend::build_and_run_server(opt.listen, server_config.clone()))?;
+    tokio::try_join!(frontend::build_and_run_server(
+        opt.listen,
+        server_config.clone()
+    ))?;
 
     println!("shutting down...");
 
     Ok(())
 }
-
 
 mod tests;

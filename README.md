@@ -2,6 +2,30 @@
 
 UDP load balancer written in Rust
 
+To run, use the command `cargo run --bin main -- --cert signed.pem --key signed.key --listen 5000`.
+
+To use the test client and server, use `cargo run --bin <choice>` where `<choice>` is replaced by either `client` or `server`.
+
+For help: 
+
+```
+stabilize 0.1.0
+
+USAGE:
+    stabilize [FLAGS] [OPTIONS]
+
+FLAGS:
+    -h, --help               Prints help information
+        --keylog             file to log TLS keys to for debugging
+        --stateless-retry    Enable stateless retries
+    -V, --version            Prints version information
+
+OPTIONS:
+    -c, --cert <cert>        TLS certificate in PEM format
+    -k, --key <key>          TLS private key in PEM format
+        --listen <listen>    Address to listen on [default: 4433]
+```
+
 ## Plan
 
 Architecture diagram [here](https://drive.google.com/file/d/1LoCD13TSaLTHX2yjudHgg3aJ7d42NlO7/view?usp=sharing)

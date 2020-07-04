@@ -1,16 +1,14 @@
-use std::{
-    net::SocketAddr,
-    net::IpAddr, net::Ipv4Addr,
-};
+use std::{net::IpAddr, net::Ipv4Addr, net::SocketAddr};
 
-use futures::{StreamExt, TryFutureExt};
-use anyhow::{anyhow, Result};
-use quinn::ServerConfig;
-use crate::backend::ServerPool;
 use crate::backend::ServerConnect;
+use crate::backend::ServerPool;
+use anyhow::{anyhow, Result};
+use futures::{StreamExt, TryFutureExt};
+use quinn::ServerConfig;
 
-
-
+/// Function will create an endpoint for clients to connect to and sets the port that
+/// it will listen to. It will then listen for a new connection and will pass off to the
+/// correct function when a connection occurs.
 pub async fn build_and_run_server(port: u16, server_config: ServerConfig) -> Result<()> {
     let mut endpoint_builder = quinn::Endpoint::builder();
     endpoint_builder.listen(server_config.clone());
@@ -23,19 +21,26 @@ pub async fn build_and_run_server(port: u16, server_config: ServerConfig) -> Res
         println!("Server listening on {}", endpoint.local_addr()?);
         incoming
     };
-
-    while let Some(conn) = incoming.next().await { 
-        println!("{}: new connection!", socket_addr);
+    while let Some(conn) = incoming.next().await {
+        println!("(Stabilize) {}: new connection!", socket_addr);
         let server = serverpool.get_next().await;
-        println!("Server given from server pool: {}", server.get_addr());
-        tokio::spawn(handle_conn(conn, server.get_addr()).unwrap_or_else(move |e| {
-            println!("{}: connection failed: {}", socket_addr, e);
-        }));
+        println!(
+            "(Stabilize) Server given from server pool: {}",
+            server.get_addr()
+        );
+        tokio::spawn(
+            handle_conn(conn, server.get_addr()).unwrap_or_else(move |e| {
+                println!("(Stabilize) {}: connection failed: {}", socket_addr, e);
+            }),
+        );
     }
 
     Ok(())
 }
 
+/// This function will handle any incoming connections. It will start a connection with
+/// the Server that it is going to connects to and will pass off to handle_response when a
+/// message has been received from the client.
 async fn handle_conn(conn: quinn::Connecting, server: SocketAddr) -> Result<()> {
     let quinn::NewConnection {
         connection: _connection,
@@ -58,7 +63,7 @@ async fn handle_conn(conn: quinn::Connecting, server: SocketAddr) -> Result<()> 
                 Ok(s) => s,
             };
             // Connect to backend server
-            let mut server_conn = match ServerConnect::start(&server).await{
+            let mut server_conn = match ServerConnect::start(&server).await {
                 Ok(conn) => conn,
                 Err(_) => panic!("Server isn't alive"),
             };
@@ -72,26 +77,24 @@ async fn handle_conn(conn: quinn::Connecting, server: SocketAddr) -> Result<()> 
     }
     .await?;
 
-
-
     Ok(())
 }
 
 // This is where send/recv streams from client are handled
-// This function should get a server from the pool and start a connection 
-// with it. This should be done after initial message is received from the 
-// client stream. Make it into a cycle of receiving and sending information between 
-// the server and client then back to the server. This should end when the server ends 
+// This function should get a server from the pool and start a connection
+// with it. This should be done after initial message is received from the
+// client stream. Make it into a cycle of receiving and sending information between
+// the server and client then back to the server. This should end when the server ends
 // its conection with the server.
 async fn handle_response(
     (mut client_send, mut client_recv): (quinn::SendStream, quinn::RecvStream),
-    mut server_conn: ServerConnect
+    mut server_conn: ServerConnect,
 ) -> Result<()> {
     println!("received new message");
 
-    let (mut server_send, mut server_recv)  = match server_conn.connect().await {
+    let (mut server_send, mut server_recv) = match server_conn.connect().await {
         Ok(s) => s,
-        Err(_) => panic!("Cannot get streams for server connection") 
+        Err(_) => panic!("Cannot get streams for server connection"),
     };
 
     let mut incoming = bytes::BytesMut::new();
@@ -107,11 +110,16 @@ async fn handle_response(
     {
         client_msg_size += s;
         incoming.extend_from_slice(&client_recv_buffer[0..s]);
-        println!("Received from stream: {}",std::str::from_utf8(&client_recv_buffer[0..s]).unwrap());
+        println!(
+            "Received from Client stream: {}",
+            std::str::from_utf8(&client_recv_buffer[0..s]).unwrap()
+        );
     }
     println!("Received {} bytes from stream", client_msg_size);
 
-    server_send.write_all(&client_recv_buffer[0..client_msg_size]);
+    server_send.write_all(&client_recv_buffer[0..client_msg_size]).await?;
+    server_send.finish().await?;
+    println!("Written to server");
 
     while let Some(s) = server_recv
         .read(&mut server_recv_buffer)
@@ -120,12 +128,16 @@ async fn handle_response(
     {
         server_msg_size += s;
         incoming.extend_from_slice(&server_recv_buffer[0..s]);
-        println!("Received from stream: {}",std::str::from_utf8(&server_recv_buffer[0..s]).unwrap());
+        println!(
+            "Received from Server stream: {}",
+            std::str::from_utf8(&server_recv_buffer[0..s]).unwrap()
+        );
     }
 
-
-    println!("writing message to send stream...");
-    client_send.write_all(&server_recv_buffer[0..server_msg_size]).await?;
+    println!("writing message to send client stream...");
+    client_send
+        .write_all(&server_recv_buffer[0..server_msg_size])
+        .await?;
 
     println!("closing send stream...");
     client_send.finish().await?;
