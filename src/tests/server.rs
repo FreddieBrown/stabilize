@@ -3,11 +3,12 @@ use futures::{StreamExt, TryFutureExt};
 use quinn::ServerConfig;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
+use std::time::Duration;
 
 pub const CUSTOM_PROTO: &[&[u8]] = &[b"cstm-01"];
 
 fn main() {
-    let exit_code = if let Err(e) = run() {
+    let exit_code = if let Err(e) = run(true) {
         eprintln!("ERROR: {}", e);
         1
     } else {
@@ -18,7 +19,7 @@ fn main() {
 }
 
 #[tokio::main]
-async fn run() -> Result<()> {
+async fn run(while_toggle: bool) -> Result<()> {
     tracing_subscriber::fmt::init();
 
     let mut transport_config = quinn::TransportConfig::default();
@@ -50,14 +51,14 @@ async fn run() -> Result<()> {
 
     let server_config = server_config_builder.build();
 
-    tokio::try_join!(build_and_run_server(5347, server_config.clone()))?;
+    tokio::try_join!(build_and_run_server(5347, server_config.clone(), while_toggle))?;
 
     println!("shutting down...");
 
     Ok(())
 }
 
-async fn build_and_run_server(port: u16, server_config: ServerConfig) -> Result<()> {
+pub async fn build_and_run_server(port: u16, server_config: ServerConfig, while_toggle: bool) -> Result<()> {
     let mut endpoint_builder = quinn::Endpoint::builder();
     endpoint_builder.listen(server_config.clone());
 
@@ -69,11 +70,27 @@ async fn build_and_run_server(port: u16, server_config: ServerConfig) -> Result<
         incoming
     };
 
-    while let Some(conn) = incoming.next().await {
-        println!("{}: new connection!", socket_addr);
-        tokio::spawn(handle_conn(conn).unwrap_or_else(move |e| {
-            println!("{}: connection failed: {}", socket_addr, e);
-        }));
+    if while_toggle {
+        while let Some(conn) = incoming.next().await {
+            println!("{}: new connection!", socket_addr);
+            tokio::spawn(handle_conn(conn).unwrap_or_else(move |e| {
+                println!("{}: connection failed: {}", socket_addr, e);
+            }));
+        }
+
+    }
+    else {
+        if let Some(conn) = incoming.next().await {
+            println!("{}: new connection!", socket_addr);
+            tokio::spawn(handle_conn(conn).unwrap_or_else(move |e| {
+                println!("{}: connection failed: {}", socket_addr, e);
+            }));
+        }
+    
+        tokio::time::delay_for(Duration::new(2,0)).await;
+    
+        println!("Loop over");
+
     }
 
     Ok(())
@@ -130,22 +147,11 @@ async fn handle_response(
         msg_size += s;
         incoming.extend_from_slice(&recv_buffer[0..s]);
     }
-    println!("Received {} bytes from stream", msg_size);
 
-    // I've seen all three of the below snippets exhibit the error, although it doesn't happen every time.
-
-    /*
-    let body = tokio::task::block_in_place(|| -> Result<Vec<u8>> {
-        let data = std::fs::read("./random_data.bin")?;
-        Ok(data)
-    })?;
-    */
+    let msg_recv = std::str::from_utf8(&recv_buffer[0..msg_size]).unwrap();
+    println!("Received {} bytes from stream: {}", msg_size, msg_recv);
 
     let body = "Returned".as_bytes();
-
-    /*
-    let body = std::fs::read("./random_data.bin")?;
-    */
 
     println!("writing message to send stream...");
     send.write_all(&body).await?;

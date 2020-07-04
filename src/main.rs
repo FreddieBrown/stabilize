@@ -60,14 +60,11 @@ async fn run(opt: Opt) -> Result<()> {
     server_config_builder.use_stateless_retry(true);
     server_config_builder.protocols(CUSTOM_PROTO); // custom protocol
 
-    // let key_path = std::path::PathBuf::from("self_signed.key");
-
     let key = std::fs::read(&opt.key.unwrap())
         .map_err(|e| anyhow!("Could not read cert key file from self_signed.key: {}", e))?;
     let key = quinn::PrivateKey::from_pem(&key)
         .map_err(|e| anyhow!("Could not create PEM from private key: {}", e))?;
 
-    // let cert_path = std::path::PathBuf::from("self_signed.pem");
     let cert_chain = std::fs::read(&opt.cert.unwrap())
         .map_err(|e| anyhow!("Could not read certificate chain file: {}", e))?;
     let cert_chain = quinn::CertificateChain::from_pem(&cert_chain)
