@@ -124,8 +124,12 @@ impl ServerPool {
         }
     }
 
-    pub fn check_health(&self) {
+    pub fn check_health(serverpool: Arc<ServerPool>) {
         println!("This function will start to check the health of servers in the server pool");
+        // Loop through all servers in serverpool
+            // Run check on each server
+            // If it has changed, then update the server status
+            // Otherwise, move onto next server
         
     }
 

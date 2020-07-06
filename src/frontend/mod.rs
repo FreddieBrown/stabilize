@@ -1,5 +1,5 @@
 use std::{net::IpAddr, net::Ipv4Addr, net::SocketAddr};
-
+use std::sync::Arc;
 use crate::backend::ServerConnect;
 use crate::backend::ServerPool;
 use anyhow::{anyhow, Result};
@@ -12,7 +12,7 @@ use quinn::ServerConfig;
 pub async fn build_and_run_server(port: u16, server_config: ServerConfig) -> Result<()> {
     let mut endpoint_builder = quinn::Endpoint::builder();
     endpoint_builder.listen(server_config.clone());
-    let serverpool = ServerPool::create_from_file("./.config");
+    let serverpool = Arc::new(ServerPool::create_from_file("./.config"));
 
     let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
 
@@ -21,9 +21,10 @@ pub async fn build_and_run_server(port: u16, server_config: ServerConfig) -> Res
         println!("(Stabilize) Server listening on {}", endpoint.local_addr()?);
         incoming
     };
+    let serverpool_in = serverpool.clone();
     while let Some(conn) = incoming.next().await{
         println!("(Stabilize) {}: new connection!", socket_addr);
-        let server = serverpool.get_next().await;
+        let server = serverpool_in.get_next().await;
         println!(
             "(Stabilize) Server given from server pool: {}",
             server.get_addr()
@@ -45,7 +46,7 @@ pub async fn build_and_run_server(port: u16, server_config: ServerConfig) -> Res
 pub async fn build_and_run_test_server(port: u16, server_config: ServerConfig) -> Result<()> {
     let mut endpoint_builder = quinn::Endpoint::builder();
     endpoint_builder.listen(server_config.clone());
-    let serverpool = ServerPool::create_from_file("./.config");
+    let serverpool = Arc::new(ServerPool::create_from_file("./.config"));
 
     let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
 
@@ -54,11 +55,12 @@ pub async fn build_and_run_test_server(port: u16, server_config: ServerConfig) -
         println!("(Stabilize) Server listening on {}", endpoint.local_addr()?);
         incoming
     };
+    let serverpool_in = serverpool.clone();
     let mut count = 0;
     while count != 1{
         let conn = incoming.next().await.unwrap();
         println!("(Stabilize) {}: new connection!", socket_addr);
-        let server = serverpool.get_next().await;
+        let server = serverpool_in.get_next().await;
         println!(
             "(Stabilize) Server given from server pool: {}",
             server.get_addr()
