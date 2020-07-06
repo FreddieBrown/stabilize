@@ -21,7 +21,7 @@ pub async fn build_and_run_server(port: u16, server_config: ServerConfig) -> Res
         println!("Server listening on {}", endpoint.local_addr()?);
         incoming
     };
-    while let Some(conn) = incoming.next().await {
+    while let Some(conn) = incoming.next().await{
         println!("(Stabilize) {}: new connection!", socket_addr);
         let server = serverpool.get_next().await;
         println!(
@@ -33,6 +33,40 @@ pub async fn build_and_run_server(port: u16, server_config: ServerConfig) -> Res
                 println!("(Stabilize) {}: connection failed: {}", socket_addr, e);
             }),
         );
+ 
+    }
+
+    Ok(())
+}
+
+/// Function will create an endpoint for clients to connect to and sets the port that
+/// it will listen to. It will then listen for a new connection and will pass off to the
+/// correct function when a connection occurs.
+pub async fn build_and_run_test_server(port: u16, server_config: ServerConfig) -> Result<()> {
+    let mut endpoint_builder = quinn::Endpoint::builder();
+    endpoint_builder.listen(server_config.clone());
+    let serverpool = ServerPool::create_from_file();
+
+    let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
+
+    let mut incoming = {
+        let (endpoint, incoming) = endpoint_builder.bind(&socket_addr)?;
+        println!("Server listening on {}", endpoint.local_addr()?);
+        incoming
+    };
+    let mut count = 0;
+    while count != 1{
+        let conn = incoming.next().await.unwrap();
+        println!("(Stabilize) {}: new connection!", socket_addr);
+        let server = serverpool.get_next().await;
+        println!(
+            "(Stabilize) Server given from server pool: {}",
+            server.get_addr()
+        );
+        handle_conn(conn, server.get_addr()).unwrap_or_else(move |e| {
+            println!("(Stabilize) {}: connection failed: {}", socket_addr, e)}).await;
+        count += 1;
+ 
     }
 
     Ok(())

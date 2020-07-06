@@ -3,10 +3,7 @@ name = "stabilize"
 version = "0.1.0"
 authors = ["Freddie Brown <fred@noser.net>"]
 edition = "2018"
-
-[[test]]
-name = "cucumber"
-harness = false
+default-run = "main"
 
 [lib]
 name = "stabilize"
@@ -40,6 +37,3 @@ webpki = "0.21"
 anyhow = "1.0"
 tracing-subscriber = "0.2"
 structopt = "0.3.0"
-
-[dev-dependencies]
-cucumber = { package = "cucumber_rust", version = "^0.6.0" } 

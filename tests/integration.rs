@@ -1,9 +1,10 @@
 extern crate stabilize;
-
-use stabilize::backend;
 use anyhow::{anyhow, Result};
+use futures::StreamExt;
+use stabilize::backend;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
+use std::{path::PathBuf, sync::Arc};
 mod client;
 mod server;
 
@@ -13,8 +14,8 @@ fn test_sanity() {
     assert_eq!(1, 1);
 }
 
-/// This is a test to check if the method by which the stabilize lb connects 
-/// to a server works. Mainly tests the ServerConnect struct, but also tests the 
+/// This is a test to check if the method by which the stabilize lb connects
+/// to a server works. Mainly tests the ServerConnect struct, but also tests the
 /// ideas behind the main project.
 #[tokio::test]
 async fn test_stab_to_server() -> Result<()> {
@@ -66,9 +67,62 @@ async fn test_stab_to_server() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_client_to_server() -> Result<()> {
+    // Start up server
+    tokio::spawn(async move {
+        server::run(false, 5347).await.unwrap();
+    });
+
+    // Set up client and direct traffic towards stabilize
+    // Only send one message
+
+    tokio::spawn(async move {
+        tokio::time::delay_for(Duration::new(2, 0)).await;
+        let client = client::QuicClient::new_insecure("127.0.0.1:5000")
+            .await
+            .unwrap();
+        for _ in 1..2 {
+            let mut requests = client::generate_futures(&client);
+
+            let mut finished_ops = 0;
+            let max_finished_ops = 1;
+
+            while finished_ops < max_finished_ops {
+                match requests.next().await {
+                    Some(s) => {
+                        finished_ops += 1;
+                        // Assert that message received back is what was set in server
+                        assert_eq!("Returned", s.unwrap())
+                    }
+                    None => println!(
+                        "Finished the stream before getting enough ops: {} vs {}",
+                        finished_ops, max_finished_ops
+                    ),
+                }
+            }
+        }
+
+        client.close();
+    });
+
+    // Re-create frontend run in test and make that run
+    let server_config = stabilize::config_builder_raw(
+        Some(PathBuf::from("signed.pem")),
+        Some(PathBuf::from("signed.key")),
+        true,
+    )
+    .await?;
+    tokio::try_join!(stabilize::frontend::build_and_run_test_server(
+        5000,
+        server_config.clone()
+    ))?;
+
+    Ok(())
+}
 
 /// These tests will test the health checking functionality of the stabilize server. If it is passing,  
-/// it will go through the 3 servers in config and will find that 2 are working and 1 isn't. Will also 
+/// it will go through the 3 servers in config and will find that 2 are working and 1 isn't. Will also
 /// check if ServerPool is working too.
 #[test]
 fn test_server_healthcheck() {

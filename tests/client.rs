@@ -5,6 +5,8 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+pub const CUSTOM_PROTO: &[&[u8]] = &[b"cstm-01"];
+
 mod insecure {
     use rustls;
     use webpki;
@@ -84,14 +86,14 @@ impl QuicClient {
     }
 
     /// Make the request to the remote peer and receive a response.
-    pub async fn make_request(&mut self, msg: &str) -> anyhow::Result<()> {
+    pub async fn make_request(&mut self, msg: &str) -> anyhow::Result<String> {
         let (mut send, mut recv) = self.open_new_connection().await?;
 
         async fn do_request(
             msg: &str,
             send: &mut quinn::SendStream,
             recv: &mut quinn::RecvStream,
-        ) -> Result<()> {
+        ) -> Result<String> {
             // send the request...
             println!("sending request...");
             send.write_all(msg.as_bytes()).await?;
@@ -121,14 +123,12 @@ impl QuicClient {
                 msg_size, ret
             );
 
-            Ok(())
+            Ok(String::from(ret))
         }
 
-        do_request(msg, &mut send, &mut recv)
+        Ok(do_request(msg, &mut send, &mut recv)
             .await
-            .map_err(|e| anyhow!("making request failed: {}", e))?;
-
-        Ok(())
+            .map_err(|e| anyhow!("making request failed: {}", e))?)
     }
 
     pub fn close(&self) {
@@ -137,9 +137,9 @@ impl QuicClient {
 }
 
 /// generates three futures that make the same request for each client passed in.
-fn generate_futures(
+pub fn generate_futures(
     client: &QuicClient,
-) -> FuturesUnordered<impl Future<Output = anyhow::Result<()>>> {
+) -> FuturesUnordered<impl Future<Output = anyhow::Result<String>>> {
     let requests = FuturesUnordered::new();
 
     for _ in 0..1 {
@@ -177,5 +177,3 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
-
-pub const CUSTOM_PROTO: &[&[u8]] = &[b"cstm-01"];

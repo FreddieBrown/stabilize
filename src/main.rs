@@ -15,6 +15,5 @@ fn main() {
             0
         }
     };
-    println!("Hello World!");
     ::std::process::exit(code);
 }
