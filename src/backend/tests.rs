@@ -28,15 +28,30 @@ async fn test_check_conn() {
         };
     });
     let to_connect: SocketAddr = "127.0.0.1:5002".parse().unwrap();
-    let verdict = ServerPool::check_conn(to_connect, Duration::new(3,0)).await;
+    let home: SocketAddr = "127.0.0.1:5001".parse().unwrap();
+    let verdict = ServerPool::check_conn(to_connect, home, Duration::new(1,0)).await;
     assert!(verdict);
 }
 
-/// These tests will test the health checking functionality of the stabilize server. If it is passing,  
-/// it will go through the 3 servers in config and will find that 2 are working and 1 isn't. Will also
-/// check if ServerPool is working too.
-#[test]
-fn test_server_healthcheck() {
-    assert_eq!(1, 1);
+#[tokio::test]
+async fn test_check_update_server_info() {
+    tokio::spawn( async move {
+        let home: SocketAddr = "127.0.0.1:5003".parse().unwrap();
+        match UdpSocket::bind(home).await {
+            Ok(_) => println!("Connected!"),
+            Err(_) => println!("No Connection!")
+        };
+    });
+    let to_connect: Server = Server::new("127.0.0.1:5003".parse().unwrap());
+    let home: SocketAddr = "127.0.0.1:5004".parse().unwrap();
+    let mut info = ServerInfo::new();
+    info.alive = false;
+    ServerPool::update_server_info(&to_connect, home, &mut info, Duration::new(1,0)).await;
+    assert_eq!(true, info.alive);
+}
+
+#[tokio::test]
+async fn test_check_health() {
+    assert_eq!(1, 1)
 }
 

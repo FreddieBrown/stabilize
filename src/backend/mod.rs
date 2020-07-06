@@ -113,18 +113,15 @@ impl ServerPool {
             }
         }
     }
-    // Write health checking functions
 
-    pub async fn check_conn (addr: SocketAddr, dur: Duration) -> bool{
-        let home: SocketAddr = "127.0.0.1:5001".parse().unwrap();
+    /// Function to check if a server is alive at the specified addr port
+    pub async fn check_conn (addr: SocketAddr, home: SocketAddr, dur: Duration) -> bool{
+        tokio::time::delay_for(dur).await;
         let sock = UdpSocket::bind(home).await.expect(&format!("(Health) Couldn't bind socket to address {}", addr));
-        let result = match sock.connect(addr).await {
+        match sock.connect(addr).await {
             Ok(_) => {println!("Connected to address: {}", addr); true},
             Err(_) => {println!("Did not connect to address: {}", addr); false}
-        };
-        tokio::time::delay_for(dur).await;
-
-        result
+        }
     }
 
     pub fn check_health(&self) {
@@ -132,8 +129,11 @@ impl ServerPool {
         
     }
 
-    pub fn update_server_info(info: &mut ServerInfo){
-        println!("Changing the server status");
+    /// Function to update a specified server info struct with information about that server
+    pub async fn update_server_info(server: &Server, home: SocketAddr, info: &mut ServerInfo, dur: Duration){
+        println!("Changing the status of {}", server.get_addr());
+        info.alive = ServerPool::check_conn(server.get_addr(), home, dur).await;
+        println!("Alive: {}", info.alive);
     }
 }
 
