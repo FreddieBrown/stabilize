@@ -4,7 +4,7 @@ use futures::StreamExt;
 use stabilize::backend;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 mod client;
 mod server;
 
@@ -119,12 +119,4 @@ async fn test_client_to_server() -> Result<()> {
     ))?;
 
     Ok(())
-}
-
-/// These tests will test the health checking functionality of the stabilize server. If it is passing,  
-/// it will go through the 3 servers in config and will find that 2 are working and 1 isn't. Will also
-/// check if ServerPool is working too.
-#[test]
-fn test_server_healthcheck() {
-    assert_eq!(1, 1);
 }

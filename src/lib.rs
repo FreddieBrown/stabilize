@@ -41,7 +41,7 @@ pub async fn run(opt: Opt) -> Result<()> {
         server_config.clone()
     ))?;
 
-    println!("shutting down...");
+    println!("(Stabilize) shutting down...");
 
     Ok(())
 }
@@ -61,14 +61,14 @@ async fn config_builder (opt: Opt) -> Result<quinn::ServerConfig>{
     server_config_builder.protocols(CUSTOM_PROTO); // custom protocol
 
     let key = std::fs::read(&opt.key.unwrap())
-        .map_err(|e| anyhow!("Could not read cert key file from self_signed.key: {}", e))?;
+        .map_err(|e| anyhow!("(Stabilize) Could not read cert key file from self_signed.key: {}", e))?;
     let key = quinn::PrivateKey::from_pem(&key)
-        .map_err(|e| anyhow!("Could not create PEM from private key: {}", e))?;
+        .map_err(|e| anyhow!("(Stabilize) Could not create PEM from private key: {}", e))?;
 
     let cert_chain = std::fs::read(&opt.cert.unwrap())
-        .map_err(|e| anyhow!("Could not read certificate chain file: {}", e))?;
+        .map_err(|e| anyhow!("(Stabilize) Could not read certificate chain file: {}", e))?;
     let cert_chain = quinn::CertificateChain::from_pem(&cert_chain)
-        .map_err(|e| anyhow!("Could not create certificate chain: {}", e))?;
+        .map_err(|e| anyhow!("(Stabilize) Could not create certificate chain: {}", e))?;
 
     server_config_builder.certificate(cert_chain, key).unwrap();
     Ok(server_config_builder.build())
@@ -90,14 +90,14 @@ pub async fn config_builder_raw (cert: Option<PathBuf>, key: Option<PathBuf>, st
     server_config_builder.protocols(CUSTOM_PROTO); // custom protocol
 
     let key = std::fs::read(&key.unwrap())
-        .map_err(|e| anyhow!("Could not read cert key file from self_signed.key: {}", e))?;
+        .map_err(|e| anyhow!("(Stabilize) Could not read cert key file from self_signed.key: {}", e))?;
     let key = quinn::PrivateKey::from_pem(&key)
-        .map_err(|e| anyhow!("Could not create PEM from private key: {}", e))?;
+        .map_err(|e| anyhow!("(Stabilize) Could not create PEM from private key: {}", e))?;
 
     let cert_chain = std::fs::read(&cert.unwrap())
-        .map_err(|e| anyhow!("Could not read certificate chain file: {}", e))?;
+        .map_err(|e| anyhow!("(Stabilize) Could not read certificate chain file: {}", e))?;
     let cert_chain = quinn::CertificateChain::from_pem(&cert_chain)
-        .map_err(|e| anyhow!("Could not create certificate chain: {}", e))?;
+        .map_err(|e| anyhow!("(Stabilize) Could not create certificate chain: {}", e))?;
 
     server_config_builder.certificate(cert_chain, key).unwrap();
     Ok(server_config_builder.build())

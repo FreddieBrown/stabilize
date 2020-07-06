@@ -12,13 +12,13 @@ use quinn::ServerConfig;
 pub async fn build_and_run_server(port: u16, server_config: ServerConfig) -> Result<()> {
     let mut endpoint_builder = quinn::Endpoint::builder();
     endpoint_builder.listen(server_config.clone());
-    let serverpool = ServerPool::create_from_file();
+    let serverpool = ServerPool::create_from_file("./.config");
 
     let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
 
     let mut incoming = {
         let (endpoint, incoming) = endpoint_builder.bind(&socket_addr)?;
-        println!("Server listening on {}", endpoint.local_addr()?);
+        println!("(Stabilize) Server listening on {}", endpoint.local_addr()?);
         incoming
     };
     while let Some(conn) = incoming.next().await{
@@ -45,13 +45,13 @@ pub async fn build_and_run_server(port: u16, server_config: ServerConfig) -> Res
 pub async fn build_and_run_test_server(port: u16, server_config: ServerConfig) -> Result<()> {
     let mut endpoint_builder = quinn::Endpoint::builder();
     endpoint_builder.listen(server_config.clone());
-    let serverpool = ServerPool::create_from_file();
+    let serverpool = ServerPool::create_from_file("./.config");
 
     let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
 
     let mut incoming = {
         let (endpoint, incoming) = endpoint_builder.bind(&socket_addr)?;
-        println!("Server listening on {}", endpoint.local_addr()?);
+        println!("(Stabilize) Server listening on {}", endpoint.local_addr()?);
         incoming
     };
     let mut count = 0;
@@ -99,12 +99,12 @@ async fn handle_conn(conn: quinn::Connecting, server: SocketAddr) -> Result<()> 
             // Connect to backend server
             let server_conn = match ServerConnect::start(&server).await {
                 Ok(conn) => conn,
-                Err(_) => panic!("Server isn't alive"),
+                Err(_) => panic!("(Stabilize) Server isn't alive"),
             };
             // Spawn message handling task
             tokio::spawn(
                 handle_response(client_streams, server_conn)
-                    .unwrap_or_else(move |e| eprintln!("Response failed: {}", e)),
+                    .unwrap_or_else(move |e| eprintln!("(Stabilize) Response failed: {}", e)),
             );
         }
         Ok(())
@@ -124,11 +124,11 @@ async fn handle_response(
     (mut client_send, mut client_recv): (quinn::SendStream, quinn::RecvStream),
     mut server_conn: ServerConnect,
 ) -> Result<()> {
-    println!("received new message");
+    println!("(Stabilize) Received new message");
 
     let (mut server_send, mut server_recv) = match server_conn.connect().await {
         Ok(s) => s,
-        Err(_) => panic!("Cannot get streams for server connection"),
+        Err(_) => panic!("(Stabilize) Cannot get streams for server connection"),
     };
 
     let mut incoming = bytes::BytesMut::new();
@@ -140,43 +140,43 @@ async fn handle_response(
     while let Some(s) = client_recv
         .read(&mut client_recv_buffer)
         .await
-        .map_err(|e| anyhow!("Could not read message from recv stream: {}", e))?
+        .map_err(|e| anyhow!("(Stabilize) Could not read message from recv stream: {}", e))?
     {
         client_msg_size += s;
         incoming.extend_from_slice(&client_recv_buffer[0..s]);
         println!(
-            "Received from Client stream: {}",
+            "(Stabilize) Received from Client stream: {}",
             std::str::from_utf8(&client_recv_buffer[0..s]).unwrap()
         );
     }
-    println!("Received {} bytes from stream", client_msg_size);
+    println!("(Stabilize) Received {} bytes from stream", client_msg_size);
 
     server_send.write_all(&client_recv_buffer[0..client_msg_size]).await?;
     server_send.finish().await?;
-    println!("Written to server");
+    println!("(Stabilize) Written to server");
 
     while let Some(s) = server_recv
         .read(&mut server_recv_buffer)
         .await
-        .map_err(|e| anyhow!("Could not read message from recv stream: {}", e))?
+        .map_err(|e| anyhow!("(Stabilize) Could not read message from recv stream: {}", e))?
     {
         server_msg_size += s;
         incoming.extend_from_slice(&server_recv_buffer[0..s]);
         println!(
-            "Received from Server stream: {}",
+            "(Stabilize) Received from Server stream: {}",
             std::str::from_utf8(&server_recv_buffer[0..s]).unwrap()
         );
     }
 
-    println!("writing message to send client stream...");
+    println!("(Stabilize) Writing message to send client stream...");
     client_send
         .write_all(&server_recv_buffer[0..server_msg_size])
         .await?;
 
-    println!("closing send stream...");
+    println!("(Stabilize) Closing send stream...");
     client_send.finish().await?;
     server_conn.close().await;
 
-    println!("response handled!\n");
+    println!("(Stabilize) Response handled!\n");
     Ok(())
 }

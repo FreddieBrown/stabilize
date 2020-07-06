@@ -8,6 +8,8 @@ use std::{
 use anyhow::{Context, Result};
 use rustls;
 use tokio::sync::RwLock;
+use std::time::Duration;
+use tokio::net::UdpSocket;
 
 pub const CUSTOM_PROTO: &[&[u8]] = &[b"cstm-01"];
 
@@ -54,12 +56,12 @@ impl ServerPool {
     /// This function will go through a config file which contains the
     /// servers it needs to connect to and will build a ServerPool instance
     /// using these server addresses
-    pub fn create_from_file() -> ServerPool {
+    pub fn create_from_file(config: &str) -> ServerPool {
         // Open up file from config path
         // Go through the config and create a HashMap which contains Server structs
         // based on the addresses in the config file
         let mut list = Vec::new();
-        let file = File::open("./.config").unwrap();
+        let file = File::open(String::from(config)).unwrap();
         let reader = BufReader::new(file);
         for line in reader.lines() {
             let addr = line.unwrap();
@@ -93,13 +95,13 @@ impl ServerPool {
     /// algorithms that can be used.
     pub async fn get_next(&self) -> &Server {
         let mut r_curr = self.current.write().await;
-        println!("Getting a server");
+        println!("(Stabilize) Getting a server");
 
         loop {
             let (server, server_info) = &self.servers[*r_curr];
             let server_info = server_info.read().await;
             if !server_info.alive {
-                println!("Server is not alive: {}", server.get_addr());
+                println!("(Stabilize) Server is not alive: {}", server.get_addr());
                 *r_curr += 1;
 
                 if *r_curr == self.servers.len() {
@@ -112,6 +114,27 @@ impl ServerPool {
         }
     }
     // Write health checking functions
+
+    pub async fn check_conn (addr: SocketAddr, dur: Duration) -> bool{
+        let home: SocketAddr = "127.0.0.1:5001".parse().unwrap();
+        let sock = UdpSocket::bind(home).await.expect(&format!("(Health) Couldn't bind socket to address {}", addr));
+        let result = match sock.connect(addr).await {
+            Ok(_) => {println!("Connected to address: {}", addr); true},
+            Err(_) => {println!("Did not connect to address: {}", addr); false}
+        };
+        tokio::time::delay_for(dur).await;
+
+        result
+    }
+
+    pub fn check_health(&self) {
+        println!("This function will start to check the health of servers in the server pool");
+        
+    }
+
+    pub fn update_server_info(info: &mut ServerInfo){
+        println!("Changing the server status");
+    }
 }
 
 /// ServerConnect object is used during connection with a server. Holds
@@ -151,11 +174,11 @@ impl ServerConnect {
         client_config.protocols(CUSTOM_PROTO);
         let (endpoint, _) = quinn::Endpoint::builder()
             .bind(&"[::]:0".parse().unwrap())
-            .context("Could not bind client endpoint")?;
+            .context("(Stabilize) Could not bind client endpoint")?;
         let conn = endpoint
             .connect_with(client_config.build(), addr, "localhost")?
             .await
-            .context(format!("Could not connect to {}", addr))?;
+            .context(format!("(Stabilize) Could not connect to {}", addr))?;
         let quinn::NewConnection {
             connection: conn, ..
         } = { conn };
@@ -187,3 +210,6 @@ mod insecure {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
