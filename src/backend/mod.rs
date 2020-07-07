@@ -84,12 +84,12 @@ impl ServerPool {
         let mut file = match File::open(&config) {
             Ok(file) => file,
             Err(_)  => {
-                panic!("Could not find config file, using default!");
+                panic!("(Stabilize) Could not find config file, using default!");
             }
         };
     
         file.read_to_string(&mut config_toml)
-                .unwrap_or_else(|err| panic!("Error while reading config: [{}]", err));
+                .unwrap_or_else(|err| panic!("(Stabilize) Error while reading config: [{}]", err));
 
         let config: Config = toml::from_str(&config_toml).unwrap();
 
@@ -148,33 +148,33 @@ impl ServerPool {
     /// message to the port and will wait for a response. If there is no response, it will assume 
     /// the server is dead and will move on.
     pub async fn heartbeat (addr: SocketAddr, home: SocketAddr) -> bool{
-        let mut sock = UdpSocket::bind(home).await.expect(&format!("(Health) Couldn't bind socket to address {}", addr));
+        let mut sock = UdpSocket::bind(home).await.expect(&format!("(Stabilize Health) Couldn't bind socket to address {}", addr));
         match sock.connect(addr).await {
-            Ok(_) => println!("Connected to address: {}", addr),
-            Err(_) => println!("Did not connect to address: {}", addr)
+            Ok(_) => println!("(Stabilize Health) Connected to address: {}", addr),
+            Err(_) => println!("(Stabilize Health) Did not connect to address: {}", addr)
         };
         sock.send("a".as_bytes()).await.unwrap();
         let mut buf = [0; 1];
         match sock.recv(&mut buf).await {
-            Ok(_) => {println!("Received: {:?}, Server Alive {}", &buf, &addr); true},
-            Err(_) => {println!("Server dead: {}", &addr); false}
+            Ok(_) => {println!("(Stabilize Health) Received: {:?}, Server Alive {}", &buf, &addr); true},
+            Err(_) => {println!("(Stabilize Health) Server dead: {}", &addr); false}
         }
     }
 
     /// Function to update a specified server info struct with information about that server
     pub async fn update_server_info(server: &Server, home: SocketAddr, info: &mut ServerInfo){
-        println!("Changing the status of {}", server.get_quic());
+        println!("(Stabilize Health) Changing the status of {}", server.get_quic());
         info.alive = ServerPool::heartbeat(server.get_hb(), home).await;
-        println!("Alive: {}", info.alive);
+        println!("(Stabilize Health) Alive: {}", info.alive);
     }
 
     /// This function will go through a serverpool and check the health of each server
     pub async fn check_health(serverpool: Arc<ServerPool>, home: SocketAddr) {
-        println!("This function will start to check the health of servers in the server pool");
+        println!("(Stabilize Health) This function will start to check the health of servers in the server pool");
         // Loop through all servers in serverpool
         for (server, servinfo) in &serverpool.servers{
             // Run check on each server
-            println!("Quic: {}, HB: {}",&server.quic, &server.heartbeat);
+            println!("(Stabilize Health) Quic: {}, HB: {}",&server.quic, &server.heartbeat);
             let mut status;
             {
                 let read = servinfo.read().await;

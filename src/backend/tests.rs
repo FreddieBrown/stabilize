@@ -31,7 +31,7 @@ async fn test_heartbeat() {
             Ok((_, p)) => p,
             Err(_) => panic!("Failure while receiving"),
         };
-        println!("Received: {:?}", &buf);
+        println!("(Stabilize Test) Received: {:?}", &buf);
         sock.send_to("b".as_bytes(), from).await.unwrap();
     });
     let to_connect: SocketAddr = "127.0.0.1:5002".parse().unwrap();
@@ -56,9 +56,9 @@ async fn test_check_update_server_info() {
         let mut buf = [0; 1];
         let from = match sock.recv_from(&mut buf).await {
             Ok((_, p)) => p,
-            Err(_) => panic!("Failure while receiving"),
+            Err(_) => panic!("(Stabilize Test) Failure while receiving"),
         };
-        println!("Received: {:?}", &buf);
+        println!("(Stabilize Test) Received: {:?}", &buf);
         sock.send_to("b".as_bytes(), from).await.unwrap();
     });
     let to_connect: Server = Server::new("127.0.0.1:5002".parse().unwrap(), "127.0.0.1:5003".parse().unwrap());
@@ -77,9 +77,9 @@ async fn test_check_health() {
         let mut buf = [0; 1];
         let from = match sock.recv_from(&mut buf).await {
             Ok((_, p)) => p,
-            Err(_) => panic!("Failure while receiving"),
+            Err(_) => panic!("(Stabilize Test) Failure while receiving"),
         };
-        println!("Received: {:?}", &buf);
+        println!("(Stabilize Test) Received: {:?}", &buf);
         sock.send_to("b".as_bytes(), from).await.unwrap();
     });
 
@@ -109,9 +109,9 @@ async fn test_check_health_runner() {
     let mut buf = [0; 1];
     let from = match sock.recv_from(&mut buf).await {
         Ok((_, p)) => p,
-        Err(_) => panic!("Failure while receiving"),
+        Err(_) => panic!("(Stabilize Test) Failure while receiving"),
     };
-    println!("Received: {:?}", &buf);
+    println!("(Stabilize Test) Received: {:?}", &buf);
     sock.send_to("b".as_bytes(), from).await.unwrap();
     tokio::time::delay_for(Duration::new(1, 0)).await;
     let sp_check = serverpool.clone();
