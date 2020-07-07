@@ -114,30 +114,59 @@ impl ServerPool {
         }
     }
 
-    /// Function to check if a server is alive at the specified addr port
-    pub async fn check_conn (addr: SocketAddr, home: SocketAddr, dur: Duration) -> bool{
-        tokio::time::delay_for(dur).await;
-        let sock = UdpSocket::bind(home).await.expect(&format!("(Health) Couldn't bind socket to address {}", addr));
+    /// Function to check if a server is alive at the specified addr port. It will send a short 
+    /// message to the port and will wait for a response. If there is no response, it will assume 
+    /// the server is dead and will move on.
+    pub async fn heartbeat (addr: SocketAddr, home: SocketAddr) -> bool{
+        let mut sock = UdpSocket::bind(home).await.expect(&format!("(Health) Couldn't bind socket to address {}", addr));
         match sock.connect(addr).await {
-            Ok(_) => {println!("Connected to address: {}", addr); true},
-            Err(_) => {println!("Did not connect to address: {}", addr); false}
+            Ok(_) => println!("Connected to address: {}", addr),
+            Err(_) => println!("Did not connect to address: {}", addr)
+        };
+        sock.send("a".as_bytes()).await.unwrap();
+        let mut buf = [0; 1];
+        match sock.recv(&mut buf).await {
+            Ok(_) => {println!("Received: {:?}, Server Alive {}", &buf, &addr); true},
+            Err(_) => {println!("Server dead: {}", &addr); false}
         }
     }
 
-    pub fn check_health(serverpool: Arc<ServerPool>) {
-        println!("This function will start to check the health of servers in the server pool");
-        // Loop through all servers in serverpool
-            // Run check on each server
-            // If it has changed, then update the server status
-            // Otherwise, move onto next server
-        
+    /// Function to update a specified server info struct with information about that server
+    pub async fn update_server_info(server: &Server, home: SocketAddr, info: &mut ServerInfo){
+        println!("Changing the status of {}", server.get_addr());
+        info.alive = ServerPool::heartbeat(server.get_addr(), home).await;
+        println!("Alive: {}", info.alive);
     }
 
-    /// Function to update a specified server info struct with information about that server
-    pub async fn update_server_info(server: &Server, home: SocketAddr, info: &mut ServerInfo, dur: Duration){
-        println!("Changing the status of {}", server.get_addr());
-        info.alive = ServerPool::check_conn(server.get_addr(), home, dur).await;
-        println!("Alive: {}", info.alive);
+    /// This function will go through a serverpool and check the health of each server
+    pub async fn check_health(serverpool: Arc<ServerPool>, home: SocketAddr) {
+        println!("This function will start to check the health of servers in the server pool");
+        // Loop through all servers in serverpool
+        for (server, servinfo) in &serverpool.servers{
+            // Run check on each server
+            println!("{}", &server.addr);
+            let mut status;
+            {
+                let read = servinfo.read().await;
+                status = read.alive;
+            } 
+            let mut temp = ServerInfo::new();
+            ServerPool::update_server_info(&server, home, &mut temp).await;
+            // If it has changed, then update the server status
+            if !(status && temp.alive) {
+                let mut write = servinfo.write().await;
+                *write = temp;
+            }
+            // Otherwise, move onto next server
+        }
+
+    }
+
+    /// This function will run the health checking functionality in a loop. Each time it is complete, 
+    /// time will be taken for the function to rest before checking health again. This should be run 
+    /// on a thread which lasts the length of the program.
+    pub fn check_health_runner(serverpool: Arc<ServerPool>, home: SocketAddr){
+
     }
 }
 
