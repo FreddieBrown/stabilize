@@ -10,8 +10,23 @@ use rustls;
 use tokio::sync::RwLock;
 use std::time::Duration;
 use tokio::net::UdpSocket;
+use serde::{Serialize, Deserialize};
+use toml::Value;
 
 pub const CUSTOM_PROTO: &[&[u8]] = &[b"cstm-01"];
+
+#[derive(Deserialize, Debug)]
+pub struct Config {
+    servers: Vec<Server>,
+}
+
+impl Config {
+    pub fn new() -> Config{
+        Config{
+            servers: vec![]
+        }
+    }
+}
 
 /// Function to encapsulate the state of a server
 pub struct ServerInfo {
@@ -28,19 +43,24 @@ impl ServerInfo {
 /// Server object. Contains server address but in the
 /// future will contain more extensive information about
 /// the servers.
+#[derive(Deserialize, Debug, Copy, Clone)]
 pub struct Server {
-    addr: SocketAddr,
+    quic: SocketAddr,
+    heartbeat: SocketAddr
 }
 
 /// Functions to help the server to work. Function to build a new
 /// server object and one to return the address.
 impl Server {
-    pub fn new(addr: SocketAddr) -> Server {
-        Server { addr }
+    pub fn new(quic: SocketAddr, heartbeat: SocketAddr) -> Server {
+        Server { quic, heartbeat}
     }
 
-    pub fn get_addr(&self) -> SocketAddr {
-        self.addr.clone()
+    pub fn get_quic(&self) -> SocketAddr {
+        self.quic.clone()
+    }
+    pub fn get_hb(&self) -> SocketAddr {
+        self.heartbeat.clone()
     }
 }
 
@@ -60,15 +80,25 @@ impl ServerPool {
         // Open up file from config path
         // Go through the config and create a HashMap which contains Server structs
         // based on the addresses in the config file
-        let mut list = Vec::new();
-        let file = File::open(String::from(config)).unwrap();
-        let reader = BufReader::new(file);
-        for line in reader.lines() {
-            let addr = line.unwrap();
-            println!("{}", &addr);
-            let addr = addr.parse::<SocketAddr>().unwrap();
-            list.push((Server::new(addr), RwLock::new(ServerInfo::new())));
-        }
+        let mut config_toml = String::from("");
+        let mut file = match File::open(&config) {
+            Ok(file) => file,
+            Err(_)  => {
+                panic!("Could not find config file, using default!");
+            }
+        };
+    
+        file.read_to_string(&mut config_toml)
+                .unwrap_or_else(|err| panic!("Error while reading config: [{}]", err));
+
+        let config: Config = toml::from_str(&config_toml).unwrap();
+
+        let servers = config.servers;
+
+        println!("{:?}", servers);
+
+        let list: Vec<_> = servers.iter().map(|s| (s.clone(), RwLock::new(ServerInfo::new())) ).collect();
+            
         ServerPool {
             servers: list,
             current: RwLock::new(0),
@@ -101,7 +131,7 @@ impl ServerPool {
             let (server, server_info) = &self.servers[*r_curr];
             let server_info = server_info.read().await;
             if !server_info.alive {
-                println!("(Stabilize) Server is not alive: {}", server.get_addr());
+                println!("(Stabilize) Server is not alive: {}", server.get_quic());
                 *r_curr += 1;
 
                 if *r_curr == self.servers.len() {
@@ -133,8 +163,8 @@ impl ServerPool {
 
     /// Function to update a specified server info struct with information about that server
     pub async fn update_server_info(server: &Server, home: SocketAddr, info: &mut ServerInfo){
-        println!("Changing the status of {}", server.get_addr());
-        info.alive = ServerPool::heartbeat(server.get_addr(), home).await;
+        println!("Changing the status of {}", server.get_quic());
+        info.alive = ServerPool::heartbeat(server.get_hb(), home).await;
         println!("Alive: {}", info.alive);
     }
 
@@ -144,7 +174,7 @@ impl ServerPool {
         // Loop through all servers in serverpool
         for (server, servinfo) in &serverpool.servers{
             // Run check on each server
-            println!("{}", &server.addr);
+            println!("Quic: {}, HB: {}",&server.quic, &server.heartbeat);
             let mut status;
             {
                 let read = servinfo.read().await;
@@ -165,7 +195,15 @@ impl ServerPool {
     /// This function will run the health checking functionality in a loop. Each time it is complete, 
     /// time will be taken for the function to rest before checking health again. This should be run 
     /// on a thread which lasts the length of the program.
-    pub fn check_health_runner(serverpool: Arc<ServerPool>, home: SocketAddr){
+    pub async fn check_health_runner(serverpool: Arc<ServerPool>, home: SocketAddr, delay: u64){
+        // Abstract the number of seconds out to another place
+        let mut interval = tokio::time::interval(Duration::from_secs(delay));
+
+        loop {
+            let sp = serverpool.clone();
+            ServerPool::check_health(sp, home).await;
+            interval.tick().await;
+        }
 
     }
 }

@@ -12,7 +12,7 @@ use quinn::ServerConfig;
 pub async fn build_and_run_server(port: u16, server_config: ServerConfig) -> Result<()> {
     let mut endpoint_builder = quinn::Endpoint::builder();
     endpoint_builder.listen(server_config.clone());
-    let serverpool = Arc::new(ServerPool::create_from_file("./.config"));
+    let serverpool = Arc::new(ServerPool::create_from_file("./.config.toml"));
 
     let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
 
@@ -27,10 +27,10 @@ pub async fn build_and_run_server(port: u16, server_config: ServerConfig) -> Res
         let server = serverpool_in.get_next().await;
         println!(
             "(Stabilize) Server given from server pool: {}",
-            server.get_addr()
+            server.get_quic()
         );
         tokio::spawn(
-            handle_conn(conn, server.get_addr()).unwrap_or_else(move |e| {
+            handle_conn(conn, server.get_quic()).unwrap_or_else(move |e| {
                 println!("(Stabilize) {}: connection failed: {}", socket_addr, e);
             }),
         );
@@ -46,7 +46,7 @@ pub async fn build_and_run_server(port: u16, server_config: ServerConfig) -> Res
 pub async fn build_and_run_test_server(port: u16, server_config: ServerConfig) -> Result<()> {
     let mut endpoint_builder = quinn::Endpoint::builder();
     endpoint_builder.listen(server_config.clone());
-    let serverpool = Arc::new(ServerPool::create_from_file("./.config"));
+    let serverpool = Arc::new(ServerPool::create_from_file("./.config.toml"));
 
     let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
 
@@ -63,9 +63,9 @@ pub async fn build_and_run_test_server(port: u16, server_config: ServerConfig) -
         let server = serverpool_in.get_next().await;
         println!(
             "(Stabilize) Server given from server pool: {}",
-            server.get_addr()
+            server.get_quic()
         );
-        handle_conn(conn, server.get_addr()).unwrap_or_else(move |e| {
+        handle_conn(conn, server.get_quic()).unwrap_or_else(move |e| {
             println!("(Stabilize) {}: connection failed: {}", socket_addr, e)}).await;
         count += 1;
  
