@@ -8,8 +8,25 @@ use std::{
 use anyhow::{Context, Result};
 use rustls;
 use tokio::sync::RwLock;
+use std::time::Duration;
+use tokio::net::UdpSocket;
+use serde::{Serialize, Deserialize};
+use toml::Value;
 
 pub const CUSTOM_PROTO: &[&[u8]] = &[b"cstm-01"];
+
+#[derive(Deserialize, Debug)]
+pub struct Config {
+    servers: Vec<Server>,
+}
+
+impl Config {
+    pub fn new() -> Config{
+        Config{
+            servers: vec![]
+        }
+    }
+}
 
 /// Function to encapsulate the state of a server
 pub struct ServerInfo {
@@ -26,19 +43,24 @@ impl ServerInfo {
 /// Server object. Contains server address but in the
 /// future will contain more extensive information about
 /// the servers.
+#[derive(Deserialize, Debug, Copy, Clone)]
 pub struct Server {
-    addr: SocketAddr,
+    quic: SocketAddr,
+    heartbeat: SocketAddr
 }
 
 /// Functions to help the server to work. Function to build a new
 /// server object and one to return the address.
 impl Server {
-    pub fn new(addr: SocketAddr) -> Server {
-        Server { addr }
+    pub fn new(quic: SocketAddr, heartbeat: SocketAddr) -> Server {
+        Server { quic, heartbeat}
     }
 
-    pub fn get_addr(&self) -> SocketAddr {
-        self.addr.clone()
+    pub fn get_quic(&self) -> SocketAddr {
+        self.quic.clone()
+    }
+    pub fn get_hb(&self) -> SocketAddr {
+        self.heartbeat.clone()
     }
 }
 
@@ -54,19 +76,29 @@ impl ServerPool {
     /// This function will go through a config file which contains the
     /// servers it needs to connect to and will build a ServerPool instance
     /// using these server addresses
-    pub fn create_from_file() -> ServerPool {
+    pub fn create_from_file(config: &str) -> ServerPool {
         // Open up file from config path
         // Go through the config and create a HashMap which contains Server structs
         // based on the addresses in the config file
-        let mut list = Vec::new();
-        let file = File::open("./.config").unwrap();
-        let reader = BufReader::new(file);
-        for line in reader.lines() {
-            let addr = line.unwrap();
-            println!("{}", &addr);
-            let addr = addr.parse::<SocketAddr>().unwrap();
-            list.push((Server::new(addr), RwLock::new(ServerInfo::new())));
-        }
+        let mut config_toml = String::from("");
+        let mut file = match File::open(&config) {
+            Ok(file) => file,
+            Err(_)  => {
+                panic!("(Stabilize) Could not find config file, using default!");
+            }
+        };
+    
+        file.read_to_string(&mut config_toml)
+                .unwrap_or_else(|err| panic!("(Stabilize) Error while reading config: [{}]", err));
+
+        let config: Config = toml::from_str(&config_toml).unwrap();
+
+        let servers = config.servers;
+
+        println!("{:?}", servers);
+
+        let list: Vec<_> = servers.iter().map(|s| (s.clone(), RwLock::new(ServerInfo::new())) ).collect();
+            
         ServerPool {
             servers: list,
             current: RwLock::new(0),
@@ -93,13 +125,13 @@ impl ServerPool {
     /// algorithms that can be used.
     pub async fn get_next(&self) -> &Server {
         let mut r_curr = self.current.write().await;
-        println!("Getting a server");
+        println!("(Stabilize) Getting a server");
 
         loop {
             let (server, server_info) = &self.servers[*r_curr];
             let server_info = server_info.read().await;
             if !server_info.alive {
-                println!("Server is not alive: {}", server.get_addr());
+                println!("(Stabilize) Server is not alive: {}", server.get_quic());
                 *r_curr += 1;
 
                 if *r_curr == self.servers.len() {
@@ -111,7 +143,69 @@ impl ServerPool {
             }
         }
     }
-    // Write health checking functions
+
+    /// Function to check if a server is alive at the specified addr port. It will send a short 
+    /// message to the port and will wait for a response. If there is no response, it will assume 
+    /// the server is dead and will move on.
+    pub async fn heartbeat (addr: SocketAddr, home: SocketAddr) -> bool{
+        let mut sock = UdpSocket::bind(home).await.expect(&format!("(Stabilize Health) Couldn't bind socket to address {}", addr));
+        match sock.connect(addr).await {
+            Ok(_) => println!("(Stabilize Health) Connected to address: {}", addr),
+            Err(_) => println!("(Stabilize Health) Did not connect to address: {}", addr)
+        };
+        sock.send("a".as_bytes()).await.unwrap();
+        let mut buf = [0; 1];
+        match sock.recv(&mut buf).await {
+            Ok(_) => {println!("(Stabilize Health) Received: {:?}, Server Alive {}", &buf, &addr); true},
+            Err(_) => {println!("(Stabilize Health) Server dead: {}", &addr); false}
+        }
+    }
+
+    /// Function to update a specified server info struct with information about that server
+    pub async fn update_server_info(server: &Server, home: SocketAddr, info: &mut ServerInfo){
+        println!("(Stabilize Health) Changing the status of {}", server.get_quic());
+        info.alive = ServerPool::heartbeat(server.get_hb(), home).await;
+        println!("(Stabilize Health) Alive: {}", info.alive);
+    }
+
+    /// This function will go through a serverpool and check the health of each server
+    pub async fn check_health(serverpool: Arc<ServerPool>, home: SocketAddr) {
+        println!("(Stabilize Health) This function will start to check the health of servers in the server pool");
+        // Loop through all servers in serverpool
+        for (server, servinfo) in &serverpool.servers{
+            // Run check on each server
+            println!("(Stabilize Health) Quic: {}, HB: {}",&server.quic, &server.heartbeat);
+            let mut status;
+            {
+                let read = servinfo.read().await;
+                status = read.alive;
+            } 
+            let mut temp = ServerInfo::new();
+            ServerPool::update_server_info(&server, home, &mut temp).await;
+            // If it has changed, then update the server status
+            if !(status && temp.alive) {
+                let mut write = servinfo.write().await;
+                *write = temp;
+            }
+            // Otherwise, move onto next server
+        }
+
+    }
+
+    /// This function will run the health checking functionality in a loop. Each time it is complete, 
+    /// time will be taken for the function to rest before checking health again. This should be run 
+    /// on a thread which lasts the length of the program.
+    pub async fn check_health_runner(serverpool: Arc<ServerPool>, home: SocketAddr, delay: u64){
+        // Abstract the number of seconds out to another place
+        let mut interval = tokio::time::interval(Duration::from_secs(delay));
+
+        loop {
+            let sp = serverpool.clone();
+            ServerPool::check_health(sp, home).await;
+            interval.tick().await;
+        }
+
+    }
 }
 
 /// ServerConnect object is used during connection with a server. Holds
@@ -151,11 +245,11 @@ impl ServerConnect {
         client_config.protocols(CUSTOM_PROTO);
         let (endpoint, _) = quinn::Endpoint::builder()
             .bind(&"[::]:0".parse().unwrap())
-            .context("Could not bind client endpoint")?;
+            .context("(Stabilize) Could not bind client endpoint")?;
         let conn = endpoint
             .connect_with(client_config.build(), addr, "localhost")?
             .await
-            .context(format!("Could not connect to {}", addr))?;
+            .context(format!("(Stabilize) Could not connect to {}", addr))?;
         let quinn::NewConnection {
             connection: conn, ..
         } = { conn };
@@ -187,3 +281,6 @@ mod insecure {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

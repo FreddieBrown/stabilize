@@ -4,6 +4,7 @@ use quinn::ServerConfig;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::net::UdpSocket;
 
 pub const CUSTOM_PROTO: &[&[u8]] = &[b"cstm-01"];
 
@@ -20,11 +21,11 @@ fn main() {
 
 #[tokio::main]
 pub async fn main_run(while_toggle: bool) -> Result<()> {
-    run(while_toggle, 5347).await.unwrap();
+    run(while_toggle, 5347, 6347).await.unwrap();
     Ok(())
 } 
 
-pub async fn run(while_toggle: bool, sock: u16) -> Result<()> {
+pub async fn run(while_toggle: bool, quic: u16, hb: u16) -> Result<()> {
 
     let mut transport_config = quinn::TransportConfig::default();
     transport_config.stream_window_uni(0);
@@ -41,53 +42,76 @@ pub async fn run(while_toggle: bool, sock: u16) -> Result<()> {
     let key_path = std::path::PathBuf::from("signed.key");
 
     let key = std::fs::read(&key_path)
-        .map_err(|e| anyhow!("Could not read cert key file from self_signed.key: {}", e))?;
+        .map_err(|e| anyhow!("(Server) Could not read cert key file from self_signed.key: {}", e))?;
     let key = quinn::PrivateKey::from_pem(&key)
-        .map_err(|e| anyhow!("Could not create PEM from private key: {}", e))?;
+        .map_err(|e| anyhow!("(Server) Could not create PEM from private key: {}", e))?;
 
     let cert_path = std::path::PathBuf::from("signed.pem");
     let cert_chain = std::fs::read(&cert_path)
-        .map_err(|e| anyhow!("Could not read certificate chain file: {}", e))?;
+        .map_err(|e| anyhow!("(Server) Could not read certificate chain file: {}", e))?;
     let cert_chain = quinn::CertificateChain::from_pem(&cert_chain)
-        .map_err(|e| anyhow!("Could not create certificate chain: {}", e))?;
+        .map_err(|e| anyhow!("(Server) Could not create certificate chain: {}", e))?;
 
     server_config_builder.certificate(cert_chain, key)?;
 
     let server_config = server_config_builder.build();
 
-    tokio::try_join!(build_and_run_server(sock, server_config.clone(), while_toggle))?;
+    tokio::try_join!(build_and_run_server(quic, hb, server_config.clone(), while_toggle))?;
 
-    println!("server shutting down...");
+    println!("(Server) Shutting down...");
 
     Ok(())
 }
 
-pub async fn build_and_run_server(port: u16, server_config: ServerConfig, while_toggle: bool) -> Result<()> {
+pub async fn build_and_run_server(quic: u16, hb: u16, server_config: ServerConfig, while_toggle: bool) -> Result<()> {
     let mut endpoint_builder = quinn::Endpoint::builder();
     endpoint_builder.listen(server_config.clone());
 
-    let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
+    let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), quic);
 
     let mut incoming = {
         let (endpoint, incoming) = endpoint_builder.bind(&socket_addr)?;
-        println!("Server listening on {}", endpoint.local_addr()?);
+        println!("(Server) Server listening on {}", endpoint.local_addr()?);
         incoming
     };
 
+    tokio::spawn(async move {
+        let home: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), hb);
+        println!("(Server Health) Starting Server HB: {}", &home);
+        let mut socket = UdpSocket::bind(home).await.unwrap();
+        let mut buf = [0; 1];
+        let mut to_send = None;
+
+        loop {
+            // First we check to see if there's a message we need to echo back.
+            // If so then we try to send it back to the original source, waiting
+            // until it's writable and we're able to do so.
+            if let Some((_, peer)) = to_send {
+                let amt = socket.send_to("a".as_bytes(), &peer).await.unwrap();
+
+                println!("(Server Health) Sent {} to {}",amt, peer);
+            }
+
+            // If we're here then `to_send` is `None`, so we take a look for the
+            // next message we're going to echo back.
+            to_send = Some(socket.recv_from(&mut buf).await.unwrap());
+        }
+    });
+
     if while_toggle {
         while let Some(conn) = incoming.next().await {
-            println!("{}: new connection!", socket_addr);
+            println!("(Server) {}: new connection!", socket_addr);
             tokio::spawn(handle_conn(conn).unwrap_or_else(move |e| {
-                println!("{}: connection failed: {}", socket_addr, e);
+                println!("(Server) {}: connection failed: {}", socket_addr, e);
             }));
         }
 
     }
     else {
         if let Some(conn) = incoming.next().await {
-            println!("{}: new connection!", socket_addr);
+            println!("(Server) {}: new connection!", socket_addr);
             tokio::spawn(handle_conn(conn).unwrap_or_else(move |e| {
-                println!("{}: connection failed: {}", socket_addr, e);
+                println!("(Server) {}: connection failed: {}", socket_addr, e);
             }));
         }
     
@@ -121,7 +145,7 @@ async fn handle_conn(conn: quinn::Connecting) -> Result<()> {
             };
             tokio::spawn(
                 handle_response(send_recv)
-                    .unwrap_or_else(move |e| eprintln!("Response failed: {}", e)),
+                    .unwrap_or_else(move |e| eprintln!("(Server) Response failed: {}", e)),
             );
         }
         Ok(())
@@ -134,7 +158,7 @@ async fn handle_conn(conn: quinn::Connecting) -> Result<()> {
 async fn handle_response(
     (mut send, mut recv): (quinn::SendStream, quinn::RecvStream),
 ) -> Result<()> {
-    println!("received new message");
+    println!("(Server) Received new message");
 
     let mut incoming = bytes::BytesMut::new();
     let mut recv_buffer = [0 as u8; 1024]; // 1 KiB socket recv buffer
@@ -143,24 +167,24 @@ async fn handle_response(
     while let Some(s) = recv
         .read(&mut recv_buffer)
         .await
-        .map_err(|e| anyhow!("Could not read message from recv stream: {}", e))?
+        .map_err(|e| anyhow!("(Server) Could not read message from recv stream: {}", e))?
     {
-        println!("Recieving data");
+        println!("(Server) Receiving data");
         msg_size += s;
         incoming.extend_from_slice(&recv_buffer[0..s]);
     }
 
     let msg_recv = std::str::from_utf8(&recv_buffer[0..msg_size]).unwrap();
-    println!("Received {} bytes from stream: {}", msg_size, msg_recv);
+    println!("(Server) Received {} bytes from stream: {}", msg_size, msg_recv);
 
     let body = "Returned".as_bytes();
 
-    println!("writing message to send stream...");
+    println!("(Server) Writing message to send stream...");
     send.write_all(&body).await?;
 
-    println!("closing send stream...");
+    println!("(Server) Closing send stream...");
     send.finish().await?;
 
-    println!("response handled!");
+    println!("(Server) Response handled!");
     Ok(())
 }

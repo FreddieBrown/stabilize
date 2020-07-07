@@ -4,7 +4,7 @@ use futures::StreamExt;
 use stabilize::backend;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 mod client;
 mod server;
 
@@ -19,43 +19,42 @@ fn test_sanity() {
 /// ideas behind the main project.
 #[tokio::test]
 async fn test_stab_to_server() -> Result<()> {
-    println!("Testing stab to server");
     tokio::spawn(async move {
-        server::run(false, 5378).await.unwrap();
+        server::run(false, 5378, 6378).await.unwrap();
     });
 
-    println!("About to run client socket");
+    println!("(Stabilize Test) About to run client socket");
     let mut incoming = bytes::BytesMut::new();
     // Create socket addr for port 5378
     let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 5378);
-    println!("Server given from server pool: {}", socket_addr);
+    println!("(Stabilize Test) Server given from server pool: {}", socket_addr);
     tokio::time::delay_for(Duration::new(1, 0)).await;
     let mut server_conn = match backend::ServerConnect::start(&socket_addr).await {
         Ok(conn) => conn,
-        Err(_) => panic!("Server isn't alive"),
+        Err(_) => panic!("(Stabilize Test) Server isn't alive"),
     };
     let (mut send, mut recv) = match server_conn.connect().await {
         Ok(s) => s,
-        Err(_) => panic!("Cannot get streams for server connection"),
+        Err(_) => panic!("(Stabilize Test) Cannot get streams for server connection"),
     };
-    println!("connected to server");
+    println!("(Stabilize Test) Connected to server");
     let mut recv_buffer = [0 as u8; 1024];
     let mut msg_size = 0;
     let body = "test123".as_bytes();
     send.write_all(&body).await.unwrap();
     send.finish().await.unwrap();
-    println!("Written to Server");
+    println!("(Stabilize Test) Written to Server");
 
     while let Some(s) = recv
         .read(&mut recv_buffer)
         .await
-        .map_err(|e| anyhow!("Could not read message from recv stream: {}", e))
+        .map_err(|e| anyhow!("(Stabilize Test) Could not read message from recv stream: {}", e))
         .unwrap()
     {
         msg_size += s;
         incoming.extend_from_slice(&recv_buffer[0..s]);
         println!(
-            "Received from stream: {}",
+            "(Stabilize Test) Received from stream: {}",
             std::str::from_utf8(&recv_buffer[0..s]).unwrap()
         );
     }
@@ -63,7 +62,7 @@ async fn test_stab_to_server() -> Result<()> {
         "Returned",
         std::str::from_utf8(&recv_buffer[0..msg_size]).unwrap()
     );
-    println!("Client shutting down");
+    println!("(Stabilize Test) Client shutting down");
     Ok(())
 }
 
@@ -71,7 +70,7 @@ async fn test_stab_to_server() -> Result<()> {
 async fn test_client_to_server() -> Result<()> {
     // Start up server
     tokio::spawn(async move {
-        server::run(false, 5347).await.unwrap();
+        server::run(false, 5347, 6347).await.unwrap();
     });
 
     // Set up client and direct traffic towards stabilize
@@ -96,7 +95,7 @@ async fn test_client_to_server() -> Result<()> {
                         assert_eq!("Returned", s.unwrap())
                     }
                     None => println!(
-                        "Finished the stream before getting enough ops: {} vs {}",
+                        "(Stabilize Test) Finished the stream before getting enough ops: {} vs {}",
                         finished_ops, max_finished_ops
                     ),
                 }
@@ -119,12 +118,4 @@ async fn test_client_to_server() -> Result<()> {
     ))?;
 
     Ok(())
-}
-
-/// These tests will test the health checking functionality of the stabilize server. If it is passing,  
-/// it will go through the 3 servers in config and will find that 2 are working and 1 isn't. Will also
-/// check if ServerPool is working too.
-#[test]
-fn test_server_healthcheck() {
-    assert_eq!(1, 1);
 }

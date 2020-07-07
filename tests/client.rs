@@ -66,12 +66,12 @@ impl QuicClient {
 
         let (endpoint, _) = quinn::Endpoint::builder()
             .bind(&"[::]:0".parse().unwrap())
-            .context("Could not bind client endpoint")?;
+            .context("(Client) Could not bind client endpoint")?;
 
         let conn = endpoint
             .connect_with(client_config.build(), &addr, "localhost")?
             .await
-            .context(format!("Could not connect to {}", &addr))?;
+            .context(format!("(Client) Could not connect to {}", &addr))?;
 
         let quinn::NewConnection {
             connection: conn, ..
@@ -95,13 +95,13 @@ impl QuicClient {
             recv: &mut quinn::RecvStream,
         ) -> Result<String> {
             // send the request...
-            println!("sending request...");
+            println!("(Client) Sending request...");
             send.write_all(msg.as_bytes()).await?;
             send.finish().await?;
-            println!("request sent!");
+            println!("(Client) Request sent!");
 
             // ...and return the response.
-            println!("reading response...");
+            println!("(Client) Reading response...");
             let mut incoming = bytes::BytesMut::new();
             let mut recv_buffer = [0 as u8; 1024]; // 1 KiB socket recv buffer
             let mut msg_size = 0;
@@ -111,7 +111,7 @@ impl QuicClient {
                 .await
                 .map_err(|e| anyhow!("Could not read message from recv stream: {}", e))?
             {
-                println!("Got data back");
+                println!("(Client) Got data back");
                 msg_size += s;
                 incoming.extend_from_slice(&recv_buffer[0..s]);
             }
@@ -119,7 +119,7 @@ impl QuicClient {
             let frozen = incoming.freeze();
             let ret = std::str::from_utf8(frozen.as_ref())?;
             println!(
-                "Received response {} bytes long from server: {}",
+                "(Client) Received response {} bytes long from server: {}",
                 msg_size, ret
             );
 
@@ -128,7 +128,7 @@ impl QuicClient {
 
         Ok(do_request(msg, &mut send, &mut recv)
             .await
-            .map_err(|e| anyhow!("making request failed: {}", e))?)
+            .map_err(|e| anyhow!("(Client) Making request failed: {}", e))?)
     }
 
     pub fn close(&self) {
@@ -166,7 +166,7 @@ async fn main() -> Result<()> {
             match requests.next().await {
                 Some(_) => finished_ops += 1,
                 None => println!(
-                    "Finished the stream before getting enough ops: {} vs {}",
+                    "(Client) Finished the stream before getting enough ops: {} vs {}",
                     finished_ops, max_finished_ops
                 ),
             }
