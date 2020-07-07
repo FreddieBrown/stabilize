@@ -1,10 +1,10 @@
-use std::{net::IpAddr, net::Ipv4Addr, net::SocketAddr};
-use std::sync::Arc;
 use crate::backend::ServerConnect;
 use crate::backend::ServerPool;
 use anyhow::{anyhow, Result};
 use futures::{StreamExt, TryFutureExt};
 use quinn::ServerConfig;
+use std::sync::Arc;
+use std::{net::IpAddr, net::Ipv4Addr, net::SocketAddr};
 
 /// Function will create an endpoint for clients to connect to and sets the port that
 /// it will listen to. It will then listen for a new connection and will pass off to the
@@ -21,8 +21,17 @@ pub async fn build_and_run_server(port: u16, server_config: ServerConfig) -> Res
         println!("(Stabilize) Server listening on {}", endpoint.local_addr()?);
         incoming
     };
+
+    // Create thread to start health checking on background servers
+    let sp_health = serverpool.clone();
+    tokio::spawn(async move {
+        println!("(Stabilize Health) Starting Health Check");
+        let home = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 4999);
+        ServerPool::check_health_runner(sp_health, home, 5).await;
+    });
+
     let serverpool_in = serverpool.clone();
-    while let Some(conn) = incoming.next().await{
+    while let Some(conn) = incoming.next().await {
         println!("(Stabilize) {}: new connection!", socket_addr);
         let server = serverpool_in.get_next().await;
         println!(
@@ -34,7 +43,6 @@ pub async fn build_and_run_server(port: u16, server_config: ServerConfig) -> Res
                 println!("(Stabilize) {}: connection failed: {}", socket_addr, e);
             }),
         );
- 
     }
 
     Ok(())
@@ -55,9 +63,18 @@ pub async fn build_and_run_test_server(port: u16, server_config: ServerConfig) -
         println!("(Stabilize) Server listening on {}", endpoint.local_addr()?);
         incoming
     };
+
+    // Create thread to start health checking on background servers
+    let sp_health = serverpool.clone();
+    tokio::spawn(async move {
+        println!("(Stabilize Health) Starting Health Check");
+        let home = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 4999);
+        ServerPool::check_health_runner(sp_health, home, 5).await;
+    });
+
     let serverpool_in = serverpool.clone();
     let mut count = 0;
-    while count != 1{
+    while count != 1 {
         let conn = incoming.next().await.unwrap();
         println!("(Stabilize) {}: new connection!", socket_addr);
         let server = serverpool_in.get_next().await;
@@ -65,10 +82,12 @@ pub async fn build_and_run_test_server(port: u16, server_config: ServerConfig) -
             "(Stabilize) Server given from server pool: {}",
             server.get_quic()
         );
-        handle_conn(conn, server.get_quic()).unwrap_or_else(move |e| {
-            println!("(Stabilize) {}: connection failed: {}", socket_addr, e)}).await;
+        handle_conn(conn, server.get_quic())
+            .unwrap_or_else(move |e| {
+                println!("(Stabilize) {}: connection failed: {}", socket_addr, e)
+            })
+            .await;
         count += 1;
- 
     }
 
     Ok(())
@@ -153,7 +172,9 @@ async fn handle_response(
     }
     println!("(Stabilize) Received {} bytes from stream", client_msg_size);
 
-    server_send.write_all(&client_recv_buffer[0..client_msg_size]).await?;
+    server_send
+        .write_all(&client_recv_buffer[0..client_msg_size])
+        .await?;
     server_send.finish().await?;
     println!("(Stabilize) Written to server");
 

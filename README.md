@@ -1,10 +1,22 @@
 # Stabilize
 
-UDP load balancer written in Rust
+## QUIC load balancer written in Rust
 
 To run, use the command `cargo run -- --cert signed.pem --key signed.key --listen 5000`.
 
 To use the test client and server, use `cargo run --bin <choice>` where `<choice>` is replaced by either `client` or `server`.
+
+To have clients associated with `Stabilize`, put their details in a `.config.toml` file. The structure of this is:
+
+```toml
+servers = [
+    {quic = "127.0.0.1:5347", heartbeat = "127.0.0.1:6347"},
+    {quic = "127.0.0.1:5348", heartbeat = "127.0.0.1:6348"},
+    {quic = "127.0.0.1:5349", heartbeat = "127.0.0.1:6349"}
+]
+```
+The `quic` address is that which the `Stabilize` balancer will connect to and communicate over mainly. The `heartbeat` port is the one used for server health checking to determine if a fault has occured in a server. This is used regularly by `Stabilize` to ensure the program can service client requests.
+
 
 For help: 
 
@@ -44,3 +56,8 @@ This is the actual load balancer. It acts as a middleman for a connection and he
 
 This contains a listener, which will listen out for any UDP packets sent by the Client. The Stabilize instance will then decide which Server to pass on the packet using the Round Robin algorithm. This works by passes packet 1 to Server 1, packet 2 to Server 2, ..., and packet N to Server N. It will then go  back round to the start, passing packet N+1 to Server 1. This helps to spread the packet load across the servers evenly. 
 
+## Contributing
+
+To contribute, send a PR and write tests. An aim of the project is to have extensive testing so that it is ensured that it will all work. 
+
+Additionally, write comments to described what is being done in a function/complex code block. This helps people understand what is going on if they need to change/replicate the behaviour. 
