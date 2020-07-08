@@ -1,5 +1,7 @@
 # Stabilize
 
+[![Build Status](https://travis-ci.com/FreddieBrown/stabilize.svg?branch=master)](https://travis-ci.com/FreddieBrown/stabilize)
+
 ## QUIC load balancer written in Rust
 
 To run, use the command `cargo run -- --cert signed.pem --key signed.key --listen 5000`.

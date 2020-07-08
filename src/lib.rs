@@ -6,7 +6,6 @@ use structopt::{self, StructOpt};
 pub mod backend;
 pub mod frontend;
 
-
 // From Quinn example
 #[derive(StructOpt, Debug, Clone)]
 #[structopt(name = "stabilize")]
@@ -38,7 +37,8 @@ pub async fn run(opt: Opt) -> Result<()> {
 
     tokio::try_join!(frontend::build_and_run_server(
         opt.listen,
-        server_config.clone()
+        server_config.clone(),
+        "./.config.toml"
     ))?;
 
     println!("(Stabilize) shutting down...");
@@ -46,8 +46,7 @@ pub async fn run(opt: Opt) -> Result<()> {
     Ok(())
 }
 
-async fn config_builder (opt: Opt) -> Result<quinn::ServerConfig>{
-
+async fn config_builder(opt: Opt) -> Result<quinn::ServerConfig> {
     let mut transport_config = quinn::TransportConfig::default();
     transport_config.stream_window_uni(0);
     transport_config.stream_window_bidi(10); // so it exhibits the problem quicker
@@ -60,8 +59,12 @@ async fn config_builder (opt: Opt) -> Result<quinn::ServerConfig>{
     server_config_builder.use_stateless_retry(true);
     server_config_builder.protocols(CUSTOM_PROTO); // custom protocol
 
-    let key = std::fs::read(&opt.key.unwrap())
-        .map_err(|e| anyhow!("(Stabilize) Could not read cert key file from self_signed.key: {}", e))?;
+    let key = std::fs::read(&opt.key.unwrap()).map_err(|e| {
+        anyhow!(
+            "(Stabilize) Could not read cert key file from self_signed.key: {}",
+            e
+        )
+    })?;
     let key = quinn::PrivateKey::from_pem(&key)
         .map_err(|e| anyhow!("(Stabilize) Could not create PEM from private key: {}", e))?;
 
@@ -72,11 +75,13 @@ async fn config_builder (opt: Opt) -> Result<quinn::ServerConfig>{
 
     server_config_builder.certificate(cert_chain, key).unwrap();
     Ok(server_config_builder.build())
-
 }
 
-pub async fn config_builder_raw (cert: Option<PathBuf>, key: Option<PathBuf>, stateless_retry: bool) -> Result<quinn::ServerConfig>{
-
+pub async fn config_builder_raw(
+    cert: Option<PathBuf>,
+    key: Option<PathBuf>,
+    stateless_retry: bool,
+) -> Result<quinn::ServerConfig> {
     let mut transport_config = quinn::TransportConfig::default();
     transport_config.stream_window_uni(0);
     transport_config.stream_window_bidi(10); // so it exhibits the problem quicker
@@ -89,8 +94,12 @@ pub async fn config_builder_raw (cert: Option<PathBuf>, key: Option<PathBuf>, st
     server_config_builder.use_stateless_retry(stateless_retry);
     server_config_builder.protocols(CUSTOM_PROTO); // custom protocol
 
-    let key = std::fs::read(&key.unwrap())
-        .map_err(|e| anyhow!("(Stabilize) Could not read cert key file from self_signed.key: {}", e))?;
+    let key = std::fs::read(&key.unwrap()).map_err(|e| {
+        anyhow!(
+            "(Stabilize) Could not read cert key file from self_signed.key: {}",
+            e
+        )
+    })?;
     let key = quinn::PrivateKey::from_pem(&key)
         .map_err(|e| anyhow!("(Stabilize) Could not create PEM from private key: {}", e))?;
 
@@ -101,5 +110,4 @@ pub async fn config_builder_raw (cert: Option<PathBuf>, key: Option<PathBuf>, st
 
     server_config_builder.certificate(cert_chain, key).unwrap();
     Ok(server_config_builder.build())
-
 }
