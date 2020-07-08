@@ -37,7 +37,8 @@ pub async fn run(opt: Opt) -> Result<()> {
 
     tokio::try_join!(frontend::build_and_run_server(
         opt.listen,
-        server_config.clone()
+        server_config.clone(),
+        "./.config.toml"
     ))?;
 
     println!("(Stabilize) shutting down...");

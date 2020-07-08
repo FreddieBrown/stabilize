@@ -9,10 +9,10 @@ use std::{net::IpAddr, net::Ipv4Addr, net::SocketAddr};
 /// Function will create an endpoint for clients to connect to and sets the port that
 /// it will listen to. It will then listen for a new connection and will pass off to the
 /// correct function when a connection occurs.
-pub async fn build_and_run_server(port: u16, server_config: ServerConfig) -> Result<()> {
+pub async fn build_and_run_server(port: u16, server_config: ServerConfig, config: &str) -> Result<()> {
     let mut endpoint_builder = quinn::Endpoint::builder();
     endpoint_builder.listen(server_config.clone());
-    let serverpool = Arc::new(ServerPool::create_from_file("./.config.toml"));
+    let serverpool = Arc::new(ServerPool::create_from_file(config));
 
     let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
 
@@ -51,10 +51,10 @@ pub async fn build_and_run_server(port: u16, server_config: ServerConfig) -> Res
 /// Function will create an endpoint for clients to connect to and sets the port that
 /// it will listen to. It will then listen for a new connection and will pass off to the
 /// correct function when a connection occurs.
-pub async fn build_and_run_test_server(port: u16, server_config: ServerConfig) -> Result<()> {
+pub async fn build_and_run_test_server(port: u16, server_config: ServerConfig, config: &str) -> Result<()> {
     let mut endpoint_builder = quinn::Endpoint::builder();
     endpoint_builder.listen(server_config.clone());
-    let serverpool = Arc::new(ServerPool::create_from_file("./.config.toml"));
+    let serverpool = Arc::new(ServerPool::create_from_file(config));
 
     let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
 
