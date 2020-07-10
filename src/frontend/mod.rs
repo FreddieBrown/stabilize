@@ -171,7 +171,19 @@ async fn handle_response(
             std::str::from_utf8(&client_recv_buffer[0..s]).unwrap()
         );
     }
-    println!("(Stabilize) Received {} bytes from stream", client_msg_size);
+    println!("(Stabilize) Received {} bytes from Client stream", client_msg_size);
+
+    match filter(&client_recv_buffer[0..client_msg_size], Filter::NoFilter) {
+        Some(_) => {
+            println!("Message passed through Client filtering");
+        },
+        None => {
+            server_send.finish().await?;
+            client_send.finish().await?;
+            server_conn.close().await;
+            return Ok(());
+        }
+    };
 
     server_send
         .write_all(&client_recv_buffer[0..client_msg_size])
@@ -192,6 +204,18 @@ async fn handle_response(
         );
     }
 
+    match filter(&server_recv_buffer[0..server_msg_size], Filter::NoFilter) {
+        Some(_) => {
+            println!("Message passed through Server filtering");
+        },
+        None => {
+            server_send.finish().await?;
+            client_send.finish().await?;
+            server_conn.close().await;
+            return Ok(());
+        }
+    };
+
     println!("(Stabilize) Writing message to send client stream...");
     client_send
         .write_all(&server_recv_buffer[0..server_msg_size])
@@ -204,3 +228,34 @@ async fn handle_response(
     println!("(Stabilize) Response handled!\n");
     Ok(())
 }
+
+/// Packet filtring architecture. Enums to decide what type of filtering 
+/// is done by the load balancer.
+fn filter(buffer: &[u8], filter: Filter) -> Option<&[u8]>{
+    match filter{
+        Filter::NoFilter => Filter::no_filter(buffer),
+        Filter::AllFilter => Filter::all_filter(buffer)
+    }
+}
+
+pub enum Filter {
+    NoFilter,
+    AllFilter
+}
+
+#[allow(unused_variables)]
+impl Filter {
+    /// No filtering function. Packet will be passed straight through
+    fn no_filter(buffer: &[u8]) -> Option<&[u8]> {
+        Some(buffer)
+    }
+
+    /// Filters out all traffic
+    fn all_filter(buffer: &[u8]) -> Option<&[u8]>{
+        None
+    }
+}
+
+
+#[cfg(test)]
+mod tests;

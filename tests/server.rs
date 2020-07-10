@@ -8,6 +8,7 @@ use tokio::net::UdpSocket;
 
 pub const CUSTOM_PROTO: &[&[u8]] = &[b"cstm-01"];
 
+#[allow(dead_code)]
 fn main() {
     let exit_code = if let Err(e) = main_run(true) {
         eprintln!("ERROR: {}", e);

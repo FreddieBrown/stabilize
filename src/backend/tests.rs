@@ -11,7 +11,7 @@ fn test_server_get_addr() {
 }
 
 #[tokio::test]
-async fn test_create_from_files() {
+async fn test_create_from_files_round_robin() {
     let addrs = vec!["127.0.0.1:5347", "127.0.0.1:5348", "127.0.0.1:5349"];
     let serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::RoundRobin);
     for i in 0..3 {
