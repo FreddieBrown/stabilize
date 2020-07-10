@@ -24,6 +24,27 @@ pub enum Algo {
     RoundRobin,
 }
 
+impl Algo {
+    /// Load Balancing algorithm. Implementation of the round robin algorithm.
+    async fn round_robin(pool: &ServerPool) -> &Server {
+        let mut r_curr = pool.current.write().await;
+        loop {
+            let (server, server_info) = &pool.servers[*r_curr];
+            let server_info = server_info.read().await;
+            if !server_info.alive {
+                println!("(Stabilize) Server is not alive: {}", server.get_quic());
+                *r_curr += 1;
+                if *r_curr == pool.servers.len() {
+                    *r_curr = 0;
+                }
+            } else {
+                *r_curr += 1;
+                return server;
+            }
+        }
+    }
+}
+
 /// Function to encapsulate the state of a server
 #[derive(Deserialize, Debug, Copy, Clone)]
 pub struct ServerInfo {
@@ -124,28 +145,10 @@ impl ServerPool {
     pub async fn get_next(pool: &ServerPool) -> &Server {
         println!("(Stabilize) Getting a server");
         match pool.algo {
-            Algo::RoundRobin => ServerPool::round_robin(pool).await,
+            Algo::RoundRobin => Algo::round_robin(pool).await,
         }
     }
-
-    /// Load Balancing algorithm. Implementation of the round robin algorithm.
-    async fn round_robin(pool: &ServerPool) -> &Server {
-        let mut r_curr = pool.current.write().await;
-        loop {
-            let (server, server_info) = &pool.servers[*r_curr];
-            let server_info = server_info.read().await;
-            if !server_info.alive {
-                println!("(Stabilize) Server is not alive: {}", server.get_quic());
-                *r_curr += 1;
-                if *r_curr == pool.servers.len() {
-                    *r_curr = 0;
-                }
-            } else {
-                *r_curr += 1;
-                return server;
-            }
-        }
-    }
+    
 
     /// Function to check if a server is alive at the specified addr port. It will send a short
     /// message to the port and will wait for a response. If there is no response, it will assume
