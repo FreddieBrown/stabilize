@@ -1,5 +1,6 @@
 use crate::backend::ServerConnect;
 use crate::backend::ServerPool;
+use crate::backend::Algo;
 use anyhow::{anyhow, Result};
 use futures::{StreamExt, TryFutureExt};
 use quinn::ServerConfig;
@@ -12,7 +13,7 @@ use std::{net::IpAddr, net::Ipv4Addr, net::SocketAddr};
 pub async fn build_and_run_server(port: u16, server_config: ServerConfig, config: &str) -> Result<()> {
     let mut endpoint_builder = quinn::Endpoint::builder();
     endpoint_builder.listen(server_config.clone());
-    let serverpool = Arc::new(ServerPool::create_from_file(config));
+    let serverpool = Arc::new(ServerPool::create_from_file(config, Algo::RoundRobin));
 
     let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
 
@@ -33,7 +34,7 @@ pub async fn build_and_run_server(port: u16, server_config: ServerConfig, config
     let serverpool_in = serverpool.clone();
     while let Some(conn) = incoming.next().await {
         println!("(Stabilize) {}: new connection!", socket_addr);
-        let server = serverpool_in.get_next().await;
+        let server = ServerPool::get_next(&serverpool_in).await;
         println!(
             "(Stabilize) Server given from server pool: {}",
             server.get_quic()
@@ -54,7 +55,7 @@ pub async fn build_and_run_server(port: u16, server_config: ServerConfig, config
 pub async fn build_and_run_test_server(port: u16, server_config: ServerConfig, config: &str) -> Result<()> {
     let mut endpoint_builder = quinn::Endpoint::builder();
     endpoint_builder.listen(server_config.clone());
-    let serverpool = Arc::new(ServerPool::create_from_file(config));
+    let serverpool = Arc::new(ServerPool::create_from_file(config, Algo::RoundRobin));
 
     let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
 
@@ -77,7 +78,7 @@ pub async fn build_and_run_test_server(port: u16, server_config: ServerConfig, c
     while count != 1 {
         let conn = incoming.next().await.unwrap();
         println!("(Stabilize) {}: new connection!", socket_addr);
-        let server = serverpool_in.get_next().await;
+        let server = ServerPool::get_next(&serverpool_in).await;
         println!(
             "(Stabilize) Server given from server pool: {}",
             server.get_quic()

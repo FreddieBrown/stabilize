@@ -13,9 +13,9 @@ fn test_server_get_addr() {
 #[tokio::test]
 async fn test_create_from_files() {
     let addrs = vec!["127.0.0.1:5347", "127.0.0.1:5348", "127.0.0.1:5349"];
-    let serverp = ServerPool::create_from_file("test_data/test_config1.toml");
+    let serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::RoundRobin);
     for i in 0..3 {
-        let serveraddr = serverp.get_next().await.get_quic();
+        let serveraddr = ServerPool::get_next(&serverp).await.get_quic();
         assert_eq!(Ok(serveraddr), addrs[i].parse());
     }
 }
@@ -84,7 +84,7 @@ async fn test_check_health() {
     });
 
     let home: SocketAddr = "127.0.0.1:43594".parse().unwrap();
-    let serverpool = Arc::new(ServerPool::create_from_file("test_data/test_config2.toml"));
+    let serverpool = Arc::new(ServerPool::create_from_file("test_data/test_config2.toml", Algo::RoundRobin));
     ServerPool::check_health(serverpool.clone(), home).await;
     let sp_check = serverpool.clone();
     let (_, serveinfo1) = &sp_check.servers[0];
@@ -97,7 +97,7 @@ async fn test_check_health() {
 
 #[tokio::test]
 async fn test_check_health_runner() {
-    let serverpool = Arc::new(ServerPool::create_from_file("test_data/test_config3.toml"));
+    let serverpool = Arc::new(ServerPool::create_from_file("test_data/test_config3.toml", Algo::RoundRobin));
     let sp_clone = serverpool.clone();
     tokio::spawn(async move {
         let home: SocketAddr = "127.0.0.1:29000".parse().unwrap();

@@ -1,17 +1,11 @@
-use std::{
-    fs::File,
-    io::{prelude::*, BufReader},
-    net::SocketAddr,
-    sync::Arc,
-};
+use std::{fs::File, io::prelude::*, net::SocketAddr, sync::Arc};
 
 use anyhow::{Context, Result};
 use rustls;
-use tokio::sync::RwLock;
+use serde::Deserialize;
 use std::time::Duration;
 use tokio::net::UdpSocket;
-use serde::{Serialize, Deserialize};
-use toml::Value;
+use tokio::sync::RwLock;
 
 pub const CUSTOM_PROTO: &[&[u8]] = &[b"cstm-01"];
 
@@ -21,14 +15,17 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn new() -> Config{
-        Config{
-            servers: vec![]
-        }
+    pub fn new() -> Config {
+        Config { servers: vec![] }
     }
 }
 
+pub enum Algo {
+    RoundRobin,
+}
+
 /// Function to encapsulate the state of a server
+#[derive(Deserialize, Debug, Copy, Clone)]
 pub struct ServerInfo {
     alive: bool,
 }
@@ -46,14 +43,14 @@ impl ServerInfo {
 #[derive(Deserialize, Debug, Copy, Clone)]
 pub struct Server {
     quic: SocketAddr,
-    heartbeat: SocketAddr
+    heartbeat: SocketAddr,
 }
 
 /// Functions to help the server to work. Function to build a new
 /// server object and one to return the address.
 impl Server {
     pub fn new(quic: SocketAddr, heartbeat: SocketAddr) -> Server {
-        Server { quic, heartbeat}
+        Server { quic, heartbeat }
     }
 
     pub fn get_quic(&self) -> SocketAddr {
@@ -69,6 +66,7 @@ impl Server {
 pub struct ServerPool {
     servers: Vec<(Server, RwLock<ServerInfo>)>,
     current: RwLock<usize>,
+    algo: Algo
 }
 
 /// ServerPool functions
@@ -76,20 +74,19 @@ impl ServerPool {
     /// This function will go through a config file which contains the
     /// servers it needs to connect to and will build a ServerPool instance
     /// using these server addresses
-    pub fn create_from_file(config: &str) -> ServerPool {
+    pub fn create_from_file(config: &str, algo: Algo) -> ServerPool {
         // Open up file from config path
         // Go through the config and create a HashMap which contains Server structs
         // based on the addresses in the config file
         let mut config_toml = String::from("");
         let mut file = match File::open(&config) {
             Ok(file) => file,
-            Err(_)  => {
+            Err(_) => {
                 panic!("(Stabilize) Could not find config file, using default!");
             }
         };
-    
         file.read_to_string(&mut config_toml)
-                .unwrap_or_else(|err| panic!("(Stabilize) Error while reading config: [{}]", err));
+            .unwrap_or_else(|err| panic!("(Stabilize) Error while reading config: [{}]", err));
 
         let config: Config = toml::from_str(&config_toml).unwrap();
 
@@ -97,11 +94,14 @@ impl ServerPool {
 
         println!("{:?}", servers);
 
-        let list: Vec<_> = servers.iter().map(|s| (s.clone(), RwLock::new(ServerInfo::new())) ).collect();
-            
+        let list: Vec<_> = servers
+            .iter()
+            .map(|s| (s.clone(), RwLock::new(ServerInfo::new())))
+            .collect();
         ServerPool {
             servers: list,
             current: RwLock::new(0),
+            algo
         }
     }
 
@@ -110,6 +110,7 @@ impl ServerPool {
         ServerPool {
             servers: Vec::new(),
             current: RwLock::new(0),
+            algo: Algo::RoundRobin
         }
     }
 
@@ -120,21 +121,23 @@ impl ServerPool {
 
     /// Function to get the next Server from the ServerPool.
     /// This is the function which implements the LB algorithms.
-    /// In future, this should be abstracted to allow other LB
-    /// algos to be used to allow variety in the types of load balancer
-    /// algorithms that can be used.
-    pub async fn get_next(&self) -> &Server {
-        let mut r_curr = self.current.write().await;
+    pub async fn get_next(pool: &ServerPool) -> &Server {
         println!("(Stabilize) Getting a server");
+        match pool.algo {
+            Algo::RoundRobin => ServerPool::round_robin(pool).await,
+        }
+    }
 
+    /// Load Balancing algorithm. Implementation of the round robin algorithm.
+    async fn round_robin(pool: &ServerPool) -> &Server {
+        let mut r_curr = pool.current.write().await;
         loop {
-            let (server, server_info) = &self.servers[*r_curr];
+            let (server, server_info) = &pool.servers[*r_curr];
             let server_info = server_info.read().await;
             if !server_info.alive {
                 println!("(Stabilize) Server is not alive: {}", server.get_quic());
                 *r_curr += 1;
-
-                if *r_curr == self.servers.len() {
+                if *r_curr == pool.servers.len() {
                     *r_curr = 0;
                 }
             } else {
@@ -144,26 +147,41 @@ impl ServerPool {
         }
     }
 
-    /// Function to check if a server is alive at the specified addr port. It will send a short 
-    /// message to the port and will wait for a response. If there is no response, it will assume 
+    /// Function to check if a server is alive at the specified addr port. It will send a short
+    /// message to the port and will wait for a response. If there is no response, it will assume
     /// the server is dead and will move on.
-    pub async fn heartbeat (addr: SocketAddr, home: SocketAddr) -> bool{
-        let mut sock = UdpSocket::bind(home).await.expect(&format!("(Stabilize Health) Couldn't bind socket to address {}", addr));
+    pub async fn heartbeat(addr: SocketAddr, home: SocketAddr) -> bool {
+        let mut sock = UdpSocket::bind(home).await.expect(&format!(
+            "(Stabilize Health) Couldn't bind socket to address {}",
+            addr
+        ));
         match sock.connect(addr).await {
             Ok(_) => println!("(Stabilize Health) Connected to address: {}", addr),
-            Err(_) => println!("(Stabilize Health) Did not connect to address: {}", addr)
+            Err(_) => println!("(Stabilize Health) Did not connect to address: {}", addr),
         };
         sock.send("a".as_bytes()).await.unwrap();
         let mut buf = [0; 1];
         match sock.recv(&mut buf).await {
-            Ok(_) => {println!("(Stabilize Health) Received: {:?}, Server Alive {}", &buf, &addr); true},
-            Err(_) => {println!("(Stabilize Health) Server dead: {}", &addr); false}
+            Ok(_) => {
+                println!(
+                    "(Stabilize Health) Received: {:?}, Server Alive {}",
+                    &buf, &addr
+                );
+                true
+            }
+            Err(_) => {
+                println!("(Stabilize Health) Server dead: {}", &addr);
+                false
+            }
         }
     }
 
     /// Function to update a specified server info struct with information about that server
-    pub async fn update_server_info(server: &Server, home: SocketAddr, info: &mut ServerInfo){
-        println!("(Stabilize Health) Changing the status of {}", server.get_quic());
+    pub async fn update_server_info(server: &Server, home: SocketAddr, info: &mut ServerInfo) {
+        println!(
+            "(Stabilize Health) Changing the status of {}",
+            server.get_quic()
+        );
         info.alive = ServerPool::heartbeat(server.get_hb(), home).await;
         println!("(Stabilize Health) Alive: {}", info.alive);
     }
@@ -172,14 +190,17 @@ impl ServerPool {
     pub async fn check_health(serverpool: Arc<ServerPool>, home: SocketAddr) {
         println!("(Stabilize Health) This function will start to check the health of servers in the server pool");
         // Loop through all servers in serverpool
-        for (server, servinfo) in &serverpool.servers{
+        for (server, servinfo) in &serverpool.servers {
             // Run check on each server
-            println!("(Stabilize Health) Quic: {}, HB: {}",&server.quic, &server.heartbeat);
+            println!(
+                "(Stabilize Health) Quic: {}, HB: {}",
+                &server.quic, &server.heartbeat
+            );
             let mut status;
             {
                 let read = servinfo.read().await;
                 status = read.alive;
-            } 
+            }
             let mut temp = ServerInfo::new();
             ServerPool::update_server_info(&server, home, &mut temp).await;
             // If it has changed, then update the server status
@@ -189,13 +210,12 @@ impl ServerPool {
             }
             // Otherwise, move onto next server
         }
-
     }
 
-    /// This function will run the health checking functionality in a loop. Each time it is complete, 
-    /// time will be taken for the function to rest before checking health again. This should be run 
+    /// This function will run the health checking functionality in a loop. Each time it is complete,
+    /// time will be taken for the function to rest before checking health again. This should be run
     /// on a thread which lasts the length of the program.
-    pub async fn check_health_runner(serverpool: Arc<ServerPool>, home: SocketAddr, delay: u64){
+    pub async fn check_health_runner(serverpool: Arc<ServerPool>, home: SocketAddr, delay: u64) {
         // Abstract the number of seconds out to another place
         let mut interval = tokio::time::interval(Duration::from_secs(delay));
 
@@ -204,7 +224,6 @@ impl ServerPool {
             ServerPool::check_health(sp, home).await;
             interval.tick().await;
         }
-
     }
 }
 
