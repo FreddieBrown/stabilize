@@ -196,7 +196,7 @@ impl ServerPool {
                 "(Stabilize Health) Quic: {}, HB: {}",
                 &server.quic, &server.heartbeat
             );
-            let mut status;
+            let status;
             {
                 let read = servinfo.read().await;
                 status = read.alive;

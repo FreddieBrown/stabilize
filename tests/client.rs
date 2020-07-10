@@ -33,11 +33,7 @@ pub struct QuicClient {
 }
 
 impl QuicClient {
-    /// Creates a new QuicClient.
-    pub async fn new(addr: &str) -> Result<QuicClient> {
-        QuicClient::create(addr, false).await
-    }
-
+    
     /// Creates a new QuicClient that does not verify certificates. Used mainly for testing.
     pub async fn new_insecure(addr: &str) -> Result<QuicClient> {
         QuicClient::create(addr, true).await
