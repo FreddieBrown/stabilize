@@ -106,11 +106,7 @@ async fn test_client_to_server() -> Result<()> {
     });
 
     // Re-create frontend run in test and make that run
-    let server_config = stabilize::config_builder_raw(
-        Some(PathBuf::from("signed.pem")),
-        Some(PathBuf::from("signed.key")),
-        true,
-    )
+    let server_config = stabilize::config_builder()
     .await?;
     tokio::try_join!(stabilize::frontend::build_and_run_test_server(
         5000,
