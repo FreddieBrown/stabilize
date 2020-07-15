@@ -1,7 +1,7 @@
-use std::{fs::File, io::prelude::*, net::SocketAddr, sync::Arc};
+use std::{fs::File, io::prelude::*, net::SocketAddr, sync::Arc, error::Error,
+    path::PathBuf};
 
 use anyhow::{Context, Result};
-use rustls;
 use serde::Deserialize;
 use std::time::Duration;
 use tokio::net::UdpSocket;
@@ -251,19 +251,15 @@ impl ServerConnect {
     /// Creates a ServerConnect object and configures a connection between Stabilize and
     /// another Quic server.
     pub async fn start(addr: &SocketAddr) -> Result<ServerConnect> {
-        let mut crypto = rustls::ClientConfig::new();
-        crypto.versions = vec![rustls::ProtocolVersion::TLSv1_3];
-
-        // Change this to make it more secure
-        crypto
-            .dangerous()
-            .set_certificate_verifier(Arc::new(insecure::NoCertificateVerification {}));
-
-        let config = quinn::ClientConfig {
-            transport: Arc::new(quinn::TransportConfig::default()),
-            crypto: Arc::new(crypto),
+        let cert_path = PathBuf::from("cert.der");
+        let cert = match std::fs::read(&cert_path) {
+            Ok(x) => x,
+            Err(e) => {
+                panic!("failed to read certificate: {}", e);
+            }
         };
-        let mut client_config = quinn::ClientConfigBuilder::new(config);
+        // let cert = quinn::Certificate::from_der(&cert)?;
+        let mut client_config = ServerConnect::configure_client(&[&cert]).unwrap();
         client_config.protocols(CUSTOM_PROTO);
         let (endpoint, _) = quinn::Endpoint::builder()
             .bind(&"[::]:0".parse().unwrap())
@@ -281,26 +277,13 @@ impl ServerConnect {
             connection: conn,
         })
     }
-}
 
-/// Module that allows for insurce connection. Change in future to
-/// enforce secure connections.
-mod insecure {
-    use rustls;
-    use webpki;
-
-    pub struct NoCertificateVerification {}
-
-    impl rustls::ServerCertVerifier for NoCertificateVerification {
-        fn verify_server_cert(
-            &self,
-            _roots: &rustls::RootCertStore,
-            _presented_certs: &[rustls::Certificate],
-            _dns_name: webpki::DNSNameRef<'_>,
-            _ocsp: &[u8],
-        ) -> Result<rustls::ServerCertVerified, rustls::TLSError> {
-            Ok(rustls::ServerCertVerified::assertion())
+    fn configure_client(server_certs: &[&[u8]]) -> Result<quinn::ClientConfigBuilder, Box<dyn Error>> {
+        let mut cfg_builder = quinn::ClientConfigBuilder::default();
+        for cert in server_certs {
+            cfg_builder.add_certificate_authority(quinn::Certificate::from_der(&cert)?)?;
         }
+        Ok(cfg_builder)
     }
 }
 
