@@ -1,6 +1,6 @@
-use std::{path::PathBuf, sync::Arc, error::Error};
+use std::{path::PathBuf, sync::Arc};
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use structopt::{self, StructOpt};
 
 pub mod backend;

@@ -4,7 +4,6 @@ use futures::StreamExt;
 use stabilize::backend;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
-use std::path::PathBuf;
 mod client;
 mod server;
 
