@@ -14,7 +14,7 @@ pub struct Config {
 
 impl Config {
     pub fn new() -> Config {
-        Config {  servers: vec![] }
+        Config { servers: vec![] }
     }
 }
 
@@ -55,7 +55,7 @@ impl Algo {
         loop {
             *i = (*i + 1) % server_num as i16;
             if *i == 0 {
-                cw = cw - (*gcd as i16); 
+                cw = cw - (*gcd as i16);
                 if cw <= 0 {
                     cw = *max as i16;
                     if cw == 0 {
@@ -70,7 +70,7 @@ impl Algo {
 
             match ret_val {
                 Some(s) => return s,
-                _ => ()
+                _ => (),
             };
         }
     }
@@ -200,7 +200,7 @@ impl ServerPool {
             .iter()
             .map(|s| (s.clone(), RwLock::new(ServerInfo::new())))
             .collect();
-        
+
         // calculate total weights of servers
         let mut max: u16 = 0;
         let mut weights: Vec<u16> = Vec::new();
@@ -213,8 +213,8 @@ impl ServerPool {
 
         // find gcd of the weights
         let mut gcd: u16 = weights[0];
-        for i in 1..weights.len()-1 {
-            gcd = num::integer::gcd(gcd, weights[i+1]);
+        for i in 1..weights.len() - 1 {
+            gcd = num::integer::gcd(gcd, weights[i + 1]);
         }
 
         ServerPool {
@@ -247,7 +247,6 @@ impl ServerPool {
         let mut max = self.max.write().await;
         *max += server_weight;
         self.servers.push((server, RwLock::new(ServerInfo::new())));
-        
     }
 
     /// Function to get the next Server from the ServerPool.

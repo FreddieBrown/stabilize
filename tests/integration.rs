@@ -31,10 +31,11 @@ async fn test_stab_to_server() -> Result<()> {
         socket_addr
     );
     tokio::time::delay_for(Duration::new(1, 0)).await;
-    let mut server_conn = match backend::ServerConnect::start(&socket_addr, String::from("cstm-01")).await {
-        Ok(conn) => conn,
-        Err(_) => panic!("(Stabilize Test) Server isn't alive"),
-    };
+    let mut server_conn =
+        match backend::ServerConnect::start(&socket_addr, String::from("cstm-01")).await {
+            Ok(conn) => conn,
+            Err(_) => panic!("(Stabilize Test) Server isn't alive"),
+        };
     let (mut send, mut recv) = match server_conn.connect().await {
         Ok(s) => s,
         Err(_) => panic!("(Stabilize Test) Cannot get streams for server connection"),

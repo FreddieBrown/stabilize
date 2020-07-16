@@ -23,18 +23,23 @@ pub struct Opt {
     #[structopt(long = "cert", short = "c", parse(from_os_str))]
     cert: Option<PathBuf>,
     /// Key path
-    #[structopt(long = "key",short = "k", parse(from_os_str))]
+    #[structopt(long = "key", short = "k", parse(from_os_str))]
     key: Option<PathBuf>,
     /// Specify Protocol being used by stabilize
-    #[structopt(long = "protocol", short = "p", default_value="cstm-01")]
-    protocol: String
+    #[structopt(long = "protocol", short = "p", default_value = "cstm-01")]
+    protocol: String,
 }
 
 #[tokio::main]
 pub async fn run(opt: Opt) -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let server_config = config_builder(opt.cert.clone(), opt.key.clone(), &[opt.protocol.as_bytes()]).await?;
+    let server_config = config_builder(
+        opt.cert.clone(),
+        opt.key.clone(),
+        &[opt.protocol.as_bytes()],
+    )
+    .await?;
     tokio::try_join!(frontend::build_and_run_server(
         opt.clone(),
         server_config.clone(),
@@ -46,7 +51,11 @@ pub async fn run(opt: Opt) -> Result<()> {
     Ok(())
 }
 
-pub async fn config_builder(cert_opt: Option<PathBuf>, key_opt: Option<PathBuf>, protocol: &[&[u8]]) -> Result<quinn::ServerConfig> {
+pub async fn config_builder(
+    cert_opt: Option<PathBuf>,
+    key_opt: Option<PathBuf>,
+    protocol: &[&[u8]],
+) -> Result<quinn::ServerConfig> {
     let mut transport_config = quinn::TransportConfig::default();
     transport_config.stream_window_uni(0);
     transport_config.stream_window_bidi(10); // so it exhibits the problem quicker
@@ -60,24 +69,27 @@ pub async fn config_builder(cert_opt: Option<PathBuf>, key_opt: Option<PathBuf>,
     server_config_builder.protocols(protocol); // custom protocol
     let (cert_path, key_path) = match (cert_opt, key_opt) {
         (Some(c), Some(k)) => (c, k),
-        (_, _) => (PathBuf::from("cert.der"), PathBuf::from("key.der"))
+        (_, _) => (PathBuf::from("cert.der"), PathBuf::from("key.der")),
     };
-    let (cert, key) = match std::fs::read(&cert_path).and_then(|x| Ok((x, std::fs::read(&key_path)?))) {
-        Ok(x) => x,
-        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => {
-            let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-            let key = cert.serialize_private_key_der();
-            let cert = cert.serialize_der().unwrap();
-            std::fs::write(&cert_path, &cert)?;
-            std::fs::write(&key_path, &key)?;
-            (cert, key)
-        }
-        Err(e) => {
-            panic!("failed to read certificate: {}", e);
-        }
-    };
+    let (cert, key) =
+        match std::fs::read(&cert_path).and_then(|x| Ok((x, std::fs::read(&key_path)?))) {
+            Ok(x) => x,
+            Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+                let key = cert.serialize_private_key_der();
+                let cert = cert.serialize_der().unwrap();
+                std::fs::write(&cert_path, &cert)?;
+                std::fs::write(&key_path, &key)?;
+                (cert, key)
+            }
+            Err(e) => {
+                panic!("failed to read certificate: {}", e);
+            }
+        };
     let key = quinn::PrivateKey::from_der(&key)?;
     let cert = quinn::Certificate::from_der(&cert)?;
-    server_config_builder.certificate(quinn::CertificateChain::from_certs(vec![cert]), key).unwrap();
+    server_config_builder
+        .certificate(quinn::CertificateChain::from_certs(vec![cert]), key)
+        .unwrap();
     Ok(server_config_builder.build())
 }
