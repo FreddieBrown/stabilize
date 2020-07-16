@@ -23,10 +23,10 @@ The `quic` address is that which the `Stabilize` balancer will connect to and co
 For help: 
 
 ```
-stabilize 0.1.0
+stabilize 1.0.0
 
 USAGE:
-    stabilize [FLAGS] [OPTIONS]
+    main [FLAGS] [OPTIONS]
 
 FLAGS:
     -h, --help               Prints help information
@@ -35,12 +35,12 @@ FLAGS:
     -V, --version            Prints version information
 
 OPTIONS:
-    -c, --cert <cert>        TLS certificate in PEM format
-    -k, --key <key>          TLS private key in PEM format
+        --cert <cert>        Certificate path
+        --key <key>          Key path
         --listen <listen>    Address to listen on [default: 4433]
 ```
 
-The program uses `cert.der` and `key.der` by default as its certificate and key. Any custom certificate and key should be named as such for the program to work. If there is no certificate and/or key, Stabilize will create and sign a pair itself.
+The program uses `cert.der` and `key.der` by default as its certificate and key. Any custom certificate and key should be named as such for the program to work. If there is no certificate and/or key, Stabilize will create and sign a pair itself. To specify a custom certificate-key pair. The name of the key and certificate can be specified in the options above. If both are not specified, neither will be used and the program will revert to creating a signing keys, if they don't exist for `cert.der` and `key.der`. Additionally, the certificate and key can just be named `cert.der` and `key.der` to save time when configuring startup.
 
 ## Plan
 

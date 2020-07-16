@@ -111,7 +111,7 @@ async fn test_client_to_server() -> Result<()> {
     });
 
     // Re-create frontend run in test and make that run
-    let server_config = stabilize::config_builder().await?;
+    let server_config = stabilize::config_builder(None, None).await?;
     tokio::try_join!(stabilize::frontend::build_and_run_test_server(
         5000,
         server_config.clone(),

@@ -19,6 +19,12 @@ pub struct Opt {
     /// Address to listen on
     #[structopt(long = "listen", default_value = "4433")]
     listen: u16,
+    /// Certificate path
+    #[structopt(long = "cert", parse(from_os_str))]
+    cert: Option<PathBuf>,
+    /// Key path
+    #[structopt(long = "key", parse(from_os_str))]
+    key: Option<PathBuf>,
 }
 
 pub const CUSTOM_PROTO: &[&[u8]] = &[b"cstm-01"];
@@ -27,7 +33,7 @@ pub const CUSTOM_PROTO: &[&[u8]] = &[b"cstm-01"];
 pub async fn run(opt: Opt) -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let server_config = config_builder().await?;
+    let server_config = config_builder(opt.cert, opt.key).await?;
 
     tokio::try_join!(frontend::build_and_run_server(
         opt.listen,
@@ -40,7 +46,7 @@ pub async fn run(opt: Opt) -> Result<()> {
     Ok(())
 }
 
-pub async fn config_builder() -> Result<quinn::ServerConfig> {
+pub async fn config_builder(cert_opt: Option<PathBuf>, key_opt: Option<PathBuf>,) -> Result<quinn::ServerConfig> {
     let mut transport_config = quinn::TransportConfig::default();
     transport_config.stream_window_uni(0);
     transport_config.stream_window_bidi(10); // so it exhibits the problem quicker
@@ -52,9 +58,10 @@ pub async fn config_builder() -> Result<quinn::ServerConfig> {
     server_config_builder.enable_keylog();
     server_config_builder.use_stateless_retry(true);
     server_config_builder.protocols(CUSTOM_PROTO); // custom protocol
-
-    let key_path = PathBuf::from("key.der");
-    let cert_path = PathBuf::from("cert.der");
+    let (cert_path, key_path) = match (cert_opt, key_opt) {
+        (Some(c), Some(k)) => (c, k),
+        (_, _) => (PathBuf::from("cert.der"), PathBuf::from("key.der"))
+    };
     let (cert, key) = match std::fs::read(&cert_path).and_then(|x| Ok((x, std::fs::read(&key_path)?))) {
         Ok(x) => x,
         Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => {
