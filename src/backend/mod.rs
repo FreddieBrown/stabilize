@@ -7,8 +7,6 @@ use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio::sync::RwLock;
 
-pub const CUSTOM_PROTO: &[&[u8]] = &[b"cstm-01"];
-
 #[derive(Deserialize, Debug)]
 pub struct Config {
     protocol: String,
