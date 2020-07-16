@@ -40,7 +40,7 @@ pub async fn build_and_run_server(port: u16, server_config: ServerConfig, config
             server.get_quic()
         );
         tokio::spawn(
-            handle_conn(conn, server.get_quic()).unwrap_or_else(move |e| {
+            handle_conn(conn, server.get_quic(), serverpool_in.clone()).unwrap_or_else(move |e| {
                 println!("(Stabilize) {}: connection failed: {}", socket_addr, e);
             }),
         );
@@ -83,7 +83,7 @@ pub async fn build_and_run_test_server(port: u16, server_config: ServerConfig, c
             "(Stabilize) Server given from server pool: {}",
             server.get_quic()
         );
-        handle_conn(conn, server.get_quic())
+        handle_conn(conn, server.get_quic(), serverpool_in.clone())
             .unwrap_or_else(move |e| {
                 println!("(Stabilize) {}: connection failed: {}", socket_addr, e)
             })
@@ -97,7 +97,7 @@ pub async fn build_and_run_test_server(port: u16, server_config: ServerConfig, c
 /// This function will handle any incoming connections. It will start a connection with
 /// the Server that it is going to connects to and will pass off to handle_response when a
 /// message has been received from the client.
-async fn handle_conn(conn: quinn::Connecting, server: SocketAddr) -> Result<()> {
+async fn handle_conn(conn: quinn::Connecting, server: SocketAddr, serverpool: Arc<ServerPool>) -> Result<()> {
     let quinn::NewConnection {
         connection: _connection,
         mut bi_streams,
@@ -130,9 +130,10 @@ async fn handle_conn(conn: quinn::Connecting, server: SocketAddr) -> Result<()> 
             );
         }
         Ok(())
+        
     }
     .await?;
-
+    Algo::decrement_connections(&serverpool, server).await;
     Ok(())
 }
 

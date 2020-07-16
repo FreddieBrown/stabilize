@@ -21,6 +21,32 @@ async fn test_create_from_files_round_robin() {
 }
 
 #[tokio::test]
+async fn test_create_from_files_least_conns() {
+    let addrs = vec!["127.0.0.1:5347", "127.0.0.1:5348", "127.0.0.1:5349"];
+    let serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::LeastConnections);
+    for i in 0..3 {
+        let serveraddr = ServerPool::get_next(&serverp).await.get_quic();
+        assert_eq!(Ok(serveraddr), addrs[i].parse());
+    }
+
+    for (_, server_info) in &serverp.servers {
+        let server_info = server_info.read().await;
+        assert_eq!(server_info.connections, 1);
+    }
+
+    for i in 0..3 {
+        Algo::decrement_connections(&serverp, addrs[i].parse().unwrap()).await;
+        println!("Decrementing: {}", &addrs[i]);
+    }
+
+    for (_, server_info) in &serverp.servers {
+        let server_info = server_info.read().await;
+        assert_eq!(server_info.connections, 0);
+    }
+    
+}
+
+#[tokio::test]
 async fn test_heartbeat() {
     println!("Running HB test");
     tokio::spawn(async move {

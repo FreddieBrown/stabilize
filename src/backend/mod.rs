@@ -21,6 +21,7 @@ impl Config {
 
 pub enum Algo {
     RoundRobin,
+    LeastConnections,
 }
 
 impl Algo {
@@ -42,18 +43,55 @@ impl Algo {
             }
         }
     }
+
+    async fn least_connections(pool: &ServerPool) -> &Server {
+        let len = &pool.servers.len();
+        let mut server_place = 0;
+        let mut least_connections = 255;
+        for i in 0..*len {
+            let (server, server_info) = &pool.servers[i];
+            let server_info = server_info.read().await;
+            if !server_info.alive {
+                println!("(Stabilize) Server is not alive: {}", server.get_quic());
+            } else {
+                if server_info.connections < least_connections {
+                    server_place = i;
+                    least_connections = server_info.connections;
+                }
+            }
+        }
+        let (server, server_info) = &pool.servers[server_place];
+        let mut server_info = server_info.write().await;
+        server_info.connections += 1;
+        server
+    }
+
+    /// Function to help with least connections cleanup and will find entry for server info and will
+    /// decrement the number of active connections.
+    pub async fn decrement_connections(pool: &ServerPool, server_addr: SocketAddr){
+        // Go into server pool and find info for server
+        // get the write lock and decrement connections
+        for (server, server_info) in &pool.servers {
+            if server.get_quic() == server_addr {
+                let mut server_info = server_info.write().await;
+                server_info.connections -= 1;
+            }
+        }
+
+    }
 }
 
 /// Function to encapsulate the state of a server
 #[derive(Deserialize, Debug, Copy, Clone)]
 pub struct ServerInfo {
-    alive: bool,
+    pub alive: bool,
+    pub connections: u8
 }
 
 impl ServerInfo {
     /// Will create a new ServerInfo object.
     pub fn new() -> ServerInfo {
-        ServerInfo { alive: true }
+        ServerInfo { alive: true, connections: 0 }
     }
 }
 
@@ -70,7 +108,7 @@ pub struct Server {
 /// server object and one to return the address.
 impl Server {
     pub fn new(quic: SocketAddr, heartbeat: SocketAddr) -> Server {
-        Server { quic, heartbeat }
+        Server { quic, heartbeat}
     }
 
     pub fn get_quic(&self) -> SocketAddr {
@@ -84,7 +122,7 @@ impl Server {
 /// ServerPool struct contains a list of servers and data about them,
 /// as well as the RoundRobin counter for selecting a server.
 pub struct ServerPool {
-    servers: Vec<(Server, RwLock<ServerInfo>)>,
+    pub servers: Vec<(Server, RwLock<ServerInfo>)>,
     current: RwLock<usize>,
     algo: Algo,
 }
@@ -145,6 +183,7 @@ impl ServerPool {
         println!("(Stabilize) Getting a server");
         match pool.algo {
             Algo::RoundRobin => Algo::round_robin(pool).await,
+            Algo::LeastConnections => Algo::least_connections(pool).await
         }
     }
 
