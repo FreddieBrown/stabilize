@@ -6,16 +6,17 @@ use futures::{StreamExt, TryFutureExt};
 use quinn::ServerConfig;
 use std::sync::Arc;
 use std::{net::IpAddr, net::Ipv4Addr, net::SocketAddr};
+use crate::Opt;
 
 /// Function will create an endpoint for clients to connect to and sets the port that
 /// it will listen to. It will then listen for a new connection and will pass off to the
 /// correct function when a connection occurs.
-pub async fn build_and_run_server(port: u16, server_config: ServerConfig, config: &str) -> Result<()> {
+pub async fn build_and_run_server(opt: Opt, server_config: ServerConfig, config: &str) -> Result<()> {
     let mut endpoint_builder = quinn::Endpoint::builder();
     endpoint_builder.listen(server_config.clone());
     let serverpool = Arc::new(ServerPool::create_from_file(config, Algo::RoundRobin));
 
-    let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
+    let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), opt.listen);
 
     let mut incoming = {
         let (endpoint, incoming) = endpoint_builder.bind(&socket_addr)?;
@@ -33,6 +34,7 @@ pub async fn build_and_run_server(port: u16, server_config: ServerConfig, config
 
     let serverpool_in = serverpool.clone();
     while let Some(conn) = incoming.next().await {
+        let opt_clone = opt.clone();
         println!("(Stabilize) {}: new connection!", socket_addr);
         let server = ServerPool::get_next(&serverpool_in).await;
         println!(
@@ -40,7 +42,7 @@ pub async fn build_and_run_server(port: u16, server_config: ServerConfig, config
             server.get_quic()
         );
         tokio::spawn(
-            handle_conn(conn, server.get_quic(), serverpool_in.clone()).unwrap_or_else(move |e| {
+            handle_conn(conn, server.get_quic(), serverpool_in.clone(), opt_clone.protocol).unwrap_or_else(move |e| {
                 println!("(Stabilize) {}: connection failed: {}", socket_addr, e);
             }),
         );
@@ -52,7 +54,7 @@ pub async fn build_and_run_server(port: u16, server_config: ServerConfig, config
 /// Function will create an endpoint for clients to connect to and sets the port that
 /// it will listen to. It will then listen for a new connection and will pass off to the
 /// correct function when a connection occurs.
-pub async fn build_and_run_test_server(port: u16, server_config: ServerConfig, config: &str) -> Result<()> {
+pub async fn build_and_run_test_server(port: u16, server_config: ServerConfig, config: &str, protocol: String) -> Result<()> {
     let mut endpoint_builder = quinn::Endpoint::builder();
     endpoint_builder.listen(server_config.clone());
     let serverpool = Arc::new(ServerPool::create_from_file(config, Algo::RoundRobin));
@@ -83,7 +85,7 @@ pub async fn build_and_run_test_server(port: u16, server_config: ServerConfig, c
             "(Stabilize) Server given from server pool: {}",
             server.get_quic()
         );
-        handle_conn(conn, server.get_quic(), serverpool_in.clone())
+        handle_conn(conn, server.get_quic(), serverpool_in.clone(), protocol.clone())
             .unwrap_or_else(move |e| {
                 println!("(Stabilize) {}: connection failed: {}", socket_addr, e)
             })
@@ -97,7 +99,7 @@ pub async fn build_and_run_test_server(port: u16, server_config: ServerConfig, c
 /// This function will handle any incoming connections. It will start a connection with
 /// the Server that it is going to connects to and will pass off to handle_response when a
 /// message has been received from the client.
-async fn handle_conn(conn: quinn::Connecting, server: SocketAddr, serverpool: Arc<ServerPool>) -> Result<()> {
+async fn handle_conn(conn: quinn::Connecting, server: SocketAddr, serverpool: Arc<ServerPool>, protocol: String) -> Result<()> {
     let quinn::NewConnection {
         connection: _connection,
         mut bi_streams,
@@ -119,7 +121,7 @@ async fn handle_conn(conn: quinn::Connecting, server: SocketAddr, serverpool: Ar
                 Ok(s) => s,
             };
             // Connect to backend server
-            let server_conn = match ServerConnect::start(&server, serverpool.protocol.clone()).await {
+            let server_conn = match ServerConnect::start(&server, protocol.clone()).await {
                 Ok(conn) => conn,
                 Err(_) => panic!("(Stabilize) Server isn't alive"),
             };

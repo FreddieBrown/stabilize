@@ -9,13 +9,12 @@ use tokio::sync::RwLock;
 
 #[derive(Deserialize, Debug)]
 pub struct Config {
-    protocol: String,
     servers: Vec<Server>,
 }
 
 impl Config {
     pub fn new() -> Config {
-        Config { protocol: String::from("cstm-01"), servers: vec![] }
+        Config {  servers: vec![] }
     }
 }
 
@@ -164,7 +163,6 @@ impl Server {
 /// ServerPool struct contains a list of servers and data about them,
 /// as well as the RoundRobin counter for selecting a server.
 pub struct ServerPool {
-    pub protocol: String,
     pub servers: Vec<(Server, RwLock<ServerInfo>)>,
     current: RwLock<usize>,
     pub previous: RwLock<i16>,
@@ -195,7 +193,6 @@ impl ServerPool {
         let config: Config = toml::from_str(&config_toml).unwrap();
 
         let servers = config.servers;
-        let protocol = config.protocol;
 
         println!("{:?}", servers);
 
@@ -221,7 +218,6 @@ impl ServerPool {
         }
 
         ServerPool {
-            protocol,
             servers: list,
             current: RwLock::new(0),
             previous: RwLock::new(-1),
@@ -234,7 +230,6 @@ impl ServerPool {
     /// Create a new, blank ServerPool object
     pub fn new() -> ServerPool {
         ServerPool {
-            protocol: String::from("cstm-01"), 
             servers: Vec::new(),
             current: RwLock::new(0),
             previous: RwLock::new(-1),

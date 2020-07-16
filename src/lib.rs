@@ -34,9 +34,9 @@ pub struct Opt {
 pub async fn run(opt: Opt) -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let server_config = config_builder(opt.cert, opt.key, &[opt.protocol.as_bytes()]).await?;
+    let server_config = config_builder(opt.cert.clone(), opt.key.clone(), &[opt.protocol.as_bytes()]).await?;
     tokio::try_join!(frontend::build_and_run_server(
-        opt.listen,
+        opt.clone(),
         server_config.clone(),
         "./.config.toml"
     ))?;

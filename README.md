@@ -48,7 +48,7 @@ The program uses `cert.der` and `key.der` by default as its certificate and key.
 
 ### Changing Protocol
 
-Stabilize uses a custom protocol as a basis. If another protocol is desired to be used, it has to be both set in the cli and in the config file. The cli sets it for the server, and the config file sets it for the client. This means you could have one protocol for the external client and one for the internal servers. This behaviour has not been tested.
+Stabilize uses a custom protocol as a basis (cstm-01). If another protocol is desired to be used, it is set as a command line argument. For example, to use another protocol like `hq-29`, you would run this as `cargo run -- --protocol hq-29`.
 
 
 ## Plan

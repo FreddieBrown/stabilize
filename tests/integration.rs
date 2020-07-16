@@ -115,7 +115,8 @@ async fn test_client_to_server() -> Result<()> {
     tokio::try_join!(stabilize::frontend::build_and_run_test_server(
         5000,
         server_config.clone(),
-        "test_data/test_config1.toml"
+        "test_data/test_config1.toml",
+        String::from("cstm-01")
     ))?;
 
     Ok(())
