@@ -1,5 +1,4 @@
-use std::{fs::File, io::prelude::*, net::SocketAddr, sync::Arc, error::Error,
-    path::PathBuf};
+use std::{error::Error, fs::File, io::prelude::*, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -87,7 +86,7 @@ impl Server {
 pub struct ServerPool {
     servers: Vec<(Server, RwLock<ServerInfo>)>,
     current: RwLock<usize>,
-    algo: Algo
+    algo: Algo,
 }
 
 /// ServerPool functions
@@ -122,7 +121,7 @@ impl ServerPool {
         ServerPool {
             servers: list,
             current: RwLock::new(0),
-            algo
+            algo,
         }
     }
 
@@ -131,7 +130,7 @@ impl ServerPool {
         ServerPool {
             servers: Vec::new(),
             current: RwLock::new(0),
-            algo: Algo::RoundRobin
+            algo: Algo::RoundRobin,
         }
     }
 
@@ -148,7 +147,6 @@ impl ServerPool {
             Algo::RoundRobin => Algo::round_robin(pool).await,
         }
     }
-    
 
     /// Function to check if a server is alive at the specified addr port. It will send a short
     /// message to the port and will wait for a response. If there is no response, it will assume
@@ -278,7 +276,9 @@ impl ServerConnect {
         })
     }
 
-    fn configure_client(server_certs: &[&[u8]]) -> Result<quinn::ClientConfigBuilder, Box<dyn Error>> {
+    fn configure_client(
+        server_certs: &[&[u8]],
+    ) -> Result<quinn::ClientConfigBuilder, Box<dyn Error>> {
         let mut cfg_builder = quinn::ClientConfigBuilder::default();
         for cert in server_certs {
             cfg_builder.add_certificate_authority(quinn::Certificate::from_der(&cert)?)?;

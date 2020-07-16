@@ -4,7 +4,7 @@
 
 ## QUIC load balancer written in Rust
 
-To run, use the command `cargo run -- --cert signed.pem --key signed.key --listen 5000`.
+To run, use the command `cargo run -- --listen 5000`.
 
 To use the test client and server, use `cargo run --bin <choice>` where `<choice>` is replaced by either `client` or `server`.
 
@@ -39,6 +39,8 @@ OPTIONS:
     -k, --key <key>          TLS private key in PEM format
         --listen <listen>    Address to listen on [default: 4433]
 ```
+
+The program uses `cert.der` and `key.der` by default as its certificate and key. Any custom certificate and key should be named as such for the program to work. If there is no certificate and/or key, Stabilize will create and sign a pair itself.
 
 ## Plan
 

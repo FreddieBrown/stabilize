@@ -26,7 +26,10 @@ async fn test_stab_to_server() -> Result<()> {
     let mut incoming = bytes::BytesMut::new();
     // Create socket addr for port 5378
     let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 5378);
-    println!("(Stabilize Test) Server given from server pool: {}", socket_addr);
+    println!(
+        "(Stabilize Test) Server given from server pool: {}",
+        socket_addr
+    );
     tokio::time::delay_for(Duration::new(1, 0)).await;
     let mut server_conn = match backend::ServerConnect::start(&socket_addr).await {
         Ok(conn) => conn,
@@ -47,7 +50,12 @@ async fn test_stab_to_server() -> Result<()> {
     while let Some(s) = recv
         .read(&mut recv_buffer)
         .await
-        .map_err(|e| anyhow!("(Stabilize Test) Could not read message from recv stream: {}", e))
+        .map_err(|e| {
+            anyhow!(
+                "(Stabilize Test) Could not read message from recv stream: {}",
+                e
+            )
+        })
         .unwrap()
     {
         msg_size += s;
@@ -77,9 +85,7 @@ async fn test_client_to_server() -> Result<()> {
 
     tokio::spawn(async move {
         tokio::time::delay_for(Duration::new(2, 0)).await;
-        let client = client::QuicClient::new_insecure("127.0.0.1:5000")
-            .await
-            .unwrap();
+        let client = client::QuicClient::new("127.0.0.1:5000").await.unwrap();
         for _ in 1..2 {
             let mut requests = client::generate_futures(&client);
 
@@ -105,8 +111,7 @@ async fn test_client_to_server() -> Result<()> {
     });
 
     // Re-create frontend run in test and make that run
-    let server_config = stabilize::config_builder()
-    .await?;
+    let server_config = stabilize::config_builder().await?;
     tokio::try_join!(stabilize::frontend::build_and_run_test_server(
         5000,
         server_config.clone(),
