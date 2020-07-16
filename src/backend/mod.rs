@@ -1,6 +1,7 @@
 use std::{error::Error, fs::File, io::prelude::*, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
+use rand::Rng;
 use serde::Deserialize;
 use std::time::Duration;
 use tokio::net::UdpSocket;
@@ -22,10 +23,12 @@ impl Config {
 pub enum Algo {
     RoundRobin,
     LeastConnections,
+    WeightedRoundRobin,
 }
 
 impl Algo {
     /// Load Balancing algorithm. Implementation of the round robin algorithm.
+    /// This will cycle through each server and return the next one each time.
     async fn round_robin(pool: &ServerPool) -> &Server {
         let mut r_curr = pool.current.write().await;
         loop {
@@ -44,6 +47,38 @@ impl Algo {
         }
     }
 
+    async fn weighted_round_robin(pool: &ServerPool) -> &Server {
+        let mut cw: i16 = 0;
+        let server_num = pool.servers.len();
+        let mut i = pool.previous.write().await;
+        let gcd = pool.gcd.read().await;
+        let max = pool.max.read().await;
+        let mut ret_val: Option<&Server> = None;
+        loop {
+            *i = (*i + 1) % server_num as i16;
+            if *i == 0 {
+                cw = cw - (*gcd as i16); 
+                if cw <= 0 {
+                    cw = *max as i16;
+                    if cw == 0 {
+                        ret_val = None;
+                    }
+                }
+            }
+            let (server, _) = &pool.servers[*i as usize];
+            if server.weight as i16 >= cw {
+                ret_val = Some(server);
+            }
+
+            match ret_val {
+                Some(s) => return s,
+                _ => ()
+            };
+        }
+    }
+
+    /// Load balancing algorithm. Implementation of the least connections algorithm
+    /// This will choose the connection which has the fewest current connections.
     async fn least_connections(pool: &ServerPool) -> &Server {
         let len = &pool.servers.len();
         let mut server_place = 0;
@@ -68,7 +103,7 @@ impl Algo {
 
     /// Function to help with least connections cleanup and will find entry for server info and will
     /// decrement the number of active connections.
-    pub async fn decrement_connections(pool: &ServerPool, server_addr: SocketAddr){
+    pub async fn decrement_connections(pool: &ServerPool, server_addr: SocketAddr) {
         // Go into server pool and find info for server
         // get the write lock and decrement connections
         for (server, server_info) in &pool.servers {
@@ -77,7 +112,6 @@ impl Algo {
                 server_info.connections -= 1;
             }
         }
-
     }
 }
 
@@ -85,13 +119,16 @@ impl Algo {
 #[derive(Deserialize, Debug, Copy, Clone)]
 pub struct ServerInfo {
     pub alive: bool,
-    pub connections: u8
+    pub connections: u16,
 }
 
 impl ServerInfo {
     /// Will create a new ServerInfo object.
     pub fn new() -> ServerInfo {
-        ServerInfo { alive: true, connections: 0 }
+        ServerInfo {
+            alive: true,
+            connections: 0,
+        }
     }
 }
 
@@ -102,13 +139,19 @@ impl ServerInfo {
 pub struct Server {
     quic: SocketAddr,
     heartbeat: SocketAddr,
+    pub weight: u16,
 }
 
 /// Functions to help the server to work. Function to build a new
 /// server object and one to return the address.
 impl Server {
     pub fn new(quic: SocketAddr, heartbeat: SocketAddr) -> Server {
-        Server { quic, heartbeat}
+        let mut rng = rand::thread_rng();
+        Server {
+            quic,
+            heartbeat,
+            weight: rng.gen(),
+        }
     }
 
     pub fn get_quic(&self) -> SocketAddr {
@@ -124,6 +167,9 @@ impl Server {
 pub struct ServerPool {
     pub servers: Vec<(Server, RwLock<ServerInfo>)>,
     current: RwLock<usize>,
+    pub previous: RwLock<i16>,
+    max: RwLock<u16>,
+    gcd: RwLock<u16>,
     pub algo: Algo,
 }
 
@@ -156,9 +202,29 @@ impl ServerPool {
             .iter()
             .map(|s| (s.clone(), RwLock::new(ServerInfo::new())))
             .collect();
+        
+        // calculate total weights of servers
+        let mut max: u16 = 0;
+        let mut weights: Vec<u16> = Vec::new();
+        for (server, _) in &list {
+            if max < server.weight {
+                max = server.weight;
+            }
+            weights.push(server.weight);
+        }
+
+        // find gcd of the weights
+        let mut gcd: u16 = weights[0];
+        for i in 1..weights.len()-1 {
+            gcd = num::integer::gcd(gcd, weights[i+1]);
+        }
+
         ServerPool {
             servers: list,
             current: RwLock::new(0),
+            previous: RwLock::new(-1),
+            max: RwLock::new(max),
+            gcd: RwLock::new(gcd),
             algo,
         }
     }
@@ -168,13 +234,22 @@ impl ServerPool {
         ServerPool {
             servers: Vec::new(),
             current: RwLock::new(0),
+            previous: RwLock::new(-1),
+            max: RwLock::new(0),
+            gcd: RwLock::new(0),
             algo: Algo::RoundRobin,
         }
     }
 
     /// Add a Server to the ServerPool
-    pub fn add(&mut self, server: Server) {
+    pub async fn add(&mut self, server: Server) {
+        let server_weight = server.weight;
+        let mut gcd = self.gcd.write().await;
+        *gcd = num::integer::gcd(*gcd, server_weight);
+        let mut max = self.max.write().await;
+        *max += server_weight;
         self.servers.push((server, RwLock::new(ServerInfo::new())));
+        
     }
 
     /// Function to get the next Server from the ServerPool.
@@ -183,7 +258,8 @@ impl ServerPool {
         println!("(Stabilize) Getting a server");
         match pool.algo {
             Algo::RoundRobin => Algo::round_robin(pool).await,
-            Algo::LeastConnections => Algo::least_connections(pool).await
+            Algo::LeastConnections => Algo::least_connections(pool).await,
+            Algo::WeightedRoundRobin => Algo::weighted_round_robin(pool).await,
         }
     }
 

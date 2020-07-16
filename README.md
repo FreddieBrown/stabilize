@@ -12,12 +12,12 @@ To have clients associated with `Stabilize`, put their details in a `.config.tom
 
 ```toml
 servers = [
-    {quic = "127.0.0.1:5347", heartbeat = "127.0.0.1:6347"},
-    {quic = "127.0.0.1:5348", heartbeat = "127.0.0.1:6348"},
-    {quic = "127.0.0.1:5349", heartbeat = "127.0.0.1:6349"}
+    {quic = "127.0.0.1:5347", heartbeat = "127.0.0.1:6347", weight = 3},
+    {quic = "127.0.0.1:5348", heartbeat = "127.0.0.1:6348", weight = 2},
+    {quic = "127.0.0.1:5349", heartbeat = "127.0.0.1:6349", weight = 1}
 ]
 ```
-The `quic` address is that which the `Stabilize` balancer will connect to and communicate over mainly. The `heartbeat` port is the one used for server health checking to determine if a fault has occured in a server. This is used regularly by `Stabilize` to ensure the program can service client requests.
+The `quic` address is that which the `Stabilize` balancer will connect to and communicate over mainly. The `heartbeat` port is the one used for server health checking to determine if a fault has occured in a server. This is used regularly by `Stabilize` to ensure the program can service client requests. Additionally, a weighting can be given to each server. This required but is only used when using `Algo::WeightedRoundRobin`.
 
 
 For help: 

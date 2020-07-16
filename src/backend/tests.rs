@@ -21,6 +21,14 @@ async fn test_create_from_files_round_robin() {
 }
 
 #[tokio::test]
+async fn test_create_from_files_weighted_round_robin() {
+    let addrs = vec!["127.0.0.1:5347", "127.0.0.1:5348", "127.0.0.1:5349"];
+    let serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::WeightedRoundRobin);
+    let serveraddr = ServerPool::get_next(&serverp).await.get_quic();
+    assert_eq!(Ok(serveraddr), addrs[2].parse());
+}
+
+#[tokio::test]
 async fn test_create_from_files_least_conns() {
     let addrs = vec!["127.0.0.1:5347", "127.0.0.1:5348", "127.0.0.1:5349"];
     let serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::LeastConnections);
