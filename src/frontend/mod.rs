@@ -133,7 +133,11 @@ async fn handle_conn(conn: quinn::Connecting, server: SocketAddr, serverpool: Ar
         
     }
     .await?;
-    Algo::decrement_connections(&serverpool, server).await;
+
+    match serverpool.algo {
+        Algo::LeastConnections => Algo::decrement_connections(&serverpool, server).await,
+        _ => ()
+    }; 
     Ok(())
 }
 

@@ -124,7 +124,7 @@ impl Server {
 pub struct ServerPool {
     pub servers: Vec<(Server, RwLock<ServerInfo>)>,
     current: RwLock<usize>,
-    algo: Algo,
+    pub algo: Algo,
 }
 
 /// ServerPool functions
