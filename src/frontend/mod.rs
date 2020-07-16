@@ -119,7 +119,7 @@ async fn handle_conn(conn: quinn::Connecting, server: SocketAddr, serverpool: Ar
                 Ok(s) => s,
             };
             // Connect to backend server
-            let server_conn = match ServerConnect::start(&server).await {
+            let server_conn = match ServerConnect::start(&server, serverpool.protocol.clone()).await {
                 Ok(conn) => conn,
                 Err(_) => panic!("(Stabilize) Server isn't alive"),
             };

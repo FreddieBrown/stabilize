@@ -11,10 +11,11 @@ To use the test client and server, use `cargo run --bin <choice>` where `<choice
 To have clients associated with `Stabilize`, put their details in a `.config.toml` file. The structure of this is:
 
 ```toml
+protocol = "cstm-01"
 servers = [
-    {quic = "127.0.0.1:5347", heartbeat = "127.0.0.1:6347", weight = 3},
+    {quic = "127.0.0.1:5347", heartbeat = "127.0.0.1:6347", weight = 1},
     {quic = "127.0.0.1:5348", heartbeat = "127.0.0.1:6348", weight = 2},
-    {quic = "127.0.0.1:5349", heartbeat = "127.0.0.1:6349", weight = 1}
+    {quic = "127.0.0.1:5349", heartbeat = "127.0.0.1:6349", weight = 3}
 ]
 ```
 The `quic` address is that which the `Stabilize` balancer will connect to and communicate over mainly. The `heartbeat` port is the one used for server health checking to determine if a fault has occured in a server. This is used regularly by `Stabilize` to ensure the program can service client requests. Additionally, a weighting can be given to each server. This required but is only used when using `Algo::WeightedRoundRobin`.
@@ -35,12 +36,20 @@ FLAGS:
     -V, --version            Prints version information
 
 OPTIONS:
-        --cert <cert>        Certificate path
-        --key <key>          Key path
-        --listen <listen>    Address to listen on [default: 4433]
+    -c, --cert <cert>            Certificate path
+    -k, --key <key>              Key path
+        --listen <listen>        Address to listen on [default: 4433]
+    -p, --protocol <protocol>    Specify Protocol being used by stabilize [default: cstm-01]
 ```
 
+### Changing Certificates 
+
 The program uses `cert.der` and `key.der` by default as its certificate and key. Any custom certificate and key should be named as such for the program to work. If there is no certificate and/or key, Stabilize will create and sign a pair itself. To specify a custom certificate-key pair. The name of the key and certificate can be specified in the options above. If both are not specified, neither will be used and the program will revert to creating a signing keys, if they don't exist for `cert.der` and `key.der`. Additionally, the certificate and key can just be named `cert.der` and `key.der` to save time when configuring startup.
+
+### Changing Protocol
+
+Stabilize uses a custom protocol as a basis. If another protocol is desired to be used, it has to be both set in the cli and in the config file. The cli sets it for the server, and the config file sets it for the client. This means you could have one protocol for the external client and one for the internal servers. This behaviour has not been tested.
+
 
 ## Plan
 

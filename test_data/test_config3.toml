@@ -1,3 +1,4 @@
+protocol = "cstm-01"
 servers = [
     {quic = "127.0.0.1:5347", heartbeat = "127.0.0.1:29001", weight = 2},
     {quic = "127.0.0.1:5348", heartbeat = "127.0.0.1:29002", weight = 1},

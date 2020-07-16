@@ -11,12 +11,13 @@ pub const CUSTOM_PROTO: &[&[u8]] = &[b"cstm-01"];
 
 #[derive(Deserialize, Debug)]
 pub struct Config {
+    protocol: String,
     servers: Vec<Server>,
 }
 
 impl Config {
     pub fn new() -> Config {
-        Config { servers: vec![] }
+        Config { protocol: String::from("cstm-01"), servers: vec![] }
     }
 }
 
@@ -165,6 +166,7 @@ impl Server {
 /// ServerPool struct contains a list of servers and data about them,
 /// as well as the RoundRobin counter for selecting a server.
 pub struct ServerPool {
+    pub protocol: String,
     pub servers: Vec<(Server, RwLock<ServerInfo>)>,
     current: RwLock<usize>,
     pub previous: RwLock<i16>,
@@ -195,6 +197,7 @@ impl ServerPool {
         let config: Config = toml::from_str(&config_toml).unwrap();
 
         let servers = config.servers;
+        let protocol = config.protocol;
 
         println!("{:?}", servers);
 
@@ -220,6 +223,7 @@ impl ServerPool {
         }
 
         ServerPool {
+            protocol,
             servers: list,
             current: RwLock::new(0),
             previous: RwLock::new(-1),
@@ -232,6 +236,7 @@ impl ServerPool {
     /// Create a new, blank ServerPool object
     pub fn new() -> ServerPool {
         ServerPool {
+            protocol: String::from("cstm-01"), 
             servers: Vec::new(),
             current: RwLock::new(0),
             previous: RwLock::new(-1),
@@ -363,7 +368,7 @@ impl ServerConnect {
 
     /// Creates a ServerConnect object and configures a connection between Stabilize and
     /// another Quic server.
-    pub async fn start(addr: &SocketAddr) -> Result<ServerConnect> {
+    pub async fn start(addr: &SocketAddr, protocol: String) -> Result<ServerConnect> {
         let cert_path = PathBuf::from("cert.der");
         let cert = match std::fs::read(&cert_path) {
             Ok(x) => x,
@@ -373,7 +378,7 @@ impl ServerConnect {
         };
         // let cert = quinn::Certificate::from_der(&cert)?;
         let mut client_config = ServerConnect::configure_client(&[&cert]).unwrap();
-        client_config.protocols(CUSTOM_PROTO);
+        client_config.protocols(&[protocol.as_bytes()]);
         let (endpoint, _) = quinn::Endpoint::builder()
             .bind(&"[::]:0".parse().unwrap())
             .context("(Stabilize) Could not bind client endpoint")?;

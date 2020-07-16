@@ -31,7 +31,7 @@ async fn test_stab_to_server() -> Result<()> {
         socket_addr
     );
     tokio::time::delay_for(Duration::new(1, 0)).await;
-    let mut server_conn = match backend::ServerConnect::start(&socket_addr).await {
+    let mut server_conn = match backend::ServerConnect::start(&socket_addr, String::from("cstm-01")).await {
         Ok(conn) => conn,
         Err(_) => panic!("(Stabilize Test) Server isn't alive"),
     };
@@ -111,7 +111,7 @@ async fn test_client_to_server() -> Result<()> {
     });
 
     // Re-create frontend run in test and make that run
-    let server_config = stabilize::config_builder(None, None).await?;
+    let server_config = stabilize::config_builder(None, None, &[b"cstm-01"]).await?;
     tokio::try_join!(stabilize::frontend::build_and_run_test_server(
         5000,
         server_config.clone(),
