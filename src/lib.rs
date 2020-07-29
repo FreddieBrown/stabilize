@@ -32,8 +32,6 @@ pub struct Opt {
 
 #[tokio::main]
 pub async fn run(opt: Opt) -> Result<()> {
-    tracing_subscriber::fmt::init();
-
     let server_config = config_builder(
         opt.cert.clone(),
         opt.key.clone(),
@@ -46,7 +44,7 @@ pub async fn run(opt: Opt) -> Result<()> {
         "./.config.toml"
     ))?;
 
-    println!("(Stabilize) shutting down...");
+    log::info!("(Stabilize) shutting down...");
 
     Ok(())
 }
