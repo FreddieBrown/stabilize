@@ -33,7 +33,7 @@ impl Algo {
             let (server, server_info) = &pool.servers[*r_curr];
             let server_info = server_info.read().await;
             if !server_info.alive {
-                println!("(Stabilize) Server is not alive: {}", server.get_quic());
+                log::info!("Server is not alive: {}", server.get_quic());
                 *r_curr += 1;
                 if *r_curr == pool.servers.len() {
                     *r_curr = 0;
@@ -85,7 +85,7 @@ impl Algo {
             let (server, server_info) = &pool.servers[i];
             let server_info = server_info.read().await;
             if !server_info.alive {
-                println!("(Stabilize) Server is not alive: {}", server.get_quic());
+                log::info!("Server is not alive: {}", server.get_quic());
             } else {
                 if server_info.connections < least_connections {
                     server_place = i;
@@ -194,7 +194,7 @@ impl ServerPool {
 
         let servers = config.servers;
 
-        println!("{:?}", servers);
+        log::info!("{:?}", servers);
 
         let list: Vec<_> = servers
             .iter()
@@ -252,7 +252,7 @@ impl ServerPool {
     /// Function to get the next Server from the ServerPool.
     /// This is the function which implements the LB algorithms.
     pub async fn get_next(pool: &ServerPool) -> &Server {
-        println!("(Stabilize) Getting a server");
+        log::info!("Getting a server");
         match pool.algo {
             Algo::RoundRobin => Algo::round_robin(pool).await,
             Algo::LeastConnections => Algo::least_connections(pool).await,
@@ -265,25 +265,25 @@ impl ServerPool {
     /// the server is dead and will move on.
     pub async fn heartbeat(addr: SocketAddr, home: SocketAddr) -> bool {
         let mut sock = UdpSocket::bind(home).await.expect(&format!(
-            "(Stabilize Health) Couldn't bind socket to address {}",
+            "(Health) Couldn't bind socket to address {}",
             addr
         ));
         match sock.connect(addr).await {
-            Ok(_) => println!("(Stabilize Health) Connected to address: {}", addr),
-            Err(_) => println!("(Stabilize Health) Did not connect to address: {}", addr),
+            Ok(_) => log::info!("(Health) Connected to address: {}", addr),
+            Err(_) => log::warn!("(Health) Did not connect to address: {}", addr),
         };
         sock.send("a".as_bytes()).await.unwrap();
         let mut buf = [0; 1];
         match sock.recv(&mut buf).await {
             Ok(_) => {
-                println!(
-                    "(Stabilize Health) Received: {:?}, Server Alive {}",
+                log::info!(
+                    "(Health) Received: {:?}, Server Alive {}",
                     &buf, &addr
                 );
                 true
             }
             Err(_) => {
-                println!("(Stabilize Health) Server dead: {}", &addr);
+                log::warn!("(Health) Server dead: {}", &addr);
                 false
             }
         }
@@ -291,22 +291,22 @@ impl ServerPool {
 
     /// Function to update a specified server info struct with information about that server
     pub async fn update_server_info(server: &Server, home: SocketAddr, info: &mut ServerInfo) {
-        println!(
-            "(Stabilize Health) Changing the status of {}",
+        log::info!(
+            "(Health) Changing the status of {}",
             server.get_quic()
         );
         info.alive = ServerPool::heartbeat(server.get_hb(), home).await;
-        println!("(Stabilize Health) Alive: {}", info.alive);
+        log::info!("(Health) Alive: {}", info.alive);
     }
 
     /// This function will go through a serverpool and check the health of each server
     pub async fn check_health(serverpool: Arc<ServerPool>, home: SocketAddr) {
-        println!("(Stabilize Health) This function will start to check the health of servers in the server pool");
+        log::info!("(Health) This function will start to check the health of servers in the server pool");
         // Loop through all servers in serverpool
         for (server, servinfo) in &serverpool.servers {
             // Run check on each server
-            println!(
-                "(Stabilize Health) Quic: {}, HB: {}",
+            log::info!(
+                "(Health) Quic: {}, HB: {}",
                 &server.quic, &server.heartbeat
             );
             let status;

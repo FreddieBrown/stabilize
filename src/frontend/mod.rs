@@ -24,14 +24,14 @@ pub async fn build_and_run_server(
 
     let mut incoming = {
         let (endpoint, incoming) = endpoint_builder.bind(&socket_addr)?;
-        println!("(Stabilize) Server listening on {}", endpoint.local_addr()?);
+        log::info!("Server listening on {}", endpoint.local_addr()?);
         incoming
     };
 
     // Create thread to start health checking on background servers
     let sp_health = serverpool.clone();
     tokio::spawn(async move {
-        println!("(Stabilize Health) Starting Health Check");
+        log::info!("(Health) Starting Health Check");
         let home = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 4999);
         ServerPool::check_health_runner(sp_health, home, 5).await;
     });
@@ -39,10 +39,10 @@ pub async fn build_and_run_server(
     let serverpool_in = serverpool.clone();
     while let Some(conn) = incoming.next().await {
         let opt_clone = opt.clone();
-        println!("(Stabilize) {}: new connection!", socket_addr);
+        log::info!("{}: new connection!", socket_addr);
         let server = ServerPool::get_next(&serverpool_in).await;
-        println!(
-            "(Stabilize) Server given from server pool: {}",
+        log::info!(
+            "Server given from server pool: {}",
             server.get_quic()
         );
         tokio::spawn(
@@ -53,7 +53,7 @@ pub async fn build_and_run_server(
                 opt_clone.protocol,
             )
             .unwrap_or_else(move |e| {
-                println!("(Stabilize) {}: connection failed: {}", socket_addr, e);
+                log::warn!("{}: connection failed: {}", socket_addr, e);
             }),
         );
     }
@@ -78,14 +78,14 @@ pub async fn build_and_run_test_server(
 
     let mut incoming = {
         let (endpoint, incoming) = endpoint_builder.bind(&socket_addr)?;
-        println!("(Stabilize) Server listening on {}", endpoint.local_addr()?);
+        log::info!("Server listening on {}", endpoint.local_addr()?);
         incoming
     };
 
     // Create thread to start health checking on background servers
     let sp_health = serverpool.clone();
     tokio::spawn(async move {
-        println!("(Stabilize Health) Starting Health Check");
+        log::info!("(Health) Starting Health Check");
         let home = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 4999);
         ServerPool::check_health_runner(sp_health, home, 5).await;
     });
@@ -94,10 +94,10 @@ pub async fn build_and_run_test_server(
     let mut count = 0;
     while count != 1 {
         let conn = incoming.next().await.unwrap();
-        println!("(Stabilize) {}: new connection!", socket_addr);
+        log::info!("{}: new connection!", socket_addr);
         let server = ServerPool::get_next(&serverpool_in).await;
-        println!(
-            "(Stabilize) Server given from server pool: {}",
+        log::info!(
+            "Server given from server pool: {}",
             server.get_quic()
         );
         handle_conn(
@@ -106,7 +106,7 @@ pub async fn build_and_run_test_server(
             serverpool_in.clone(),
             protocol.clone(),
         )
-        .unwrap_or_else(move |e| println!("(Stabilize) {}: connection failed: {}", socket_addr, e))
+        .unwrap_or_else(move |e| log::warn!("{}: connection failed: {}", socket_addr, e))
         .await;
         count += 1;
     }
@@ -175,7 +175,7 @@ async fn handle_response(
     (mut client_send, mut client_recv): (quinn::SendStream, quinn::RecvStream),
     mut server_conn: ServerConnect,
 ) -> Result<()> {
-    println!("(Stabilize) Received new message");
+    log::info!("Received new message");
 
     let (mut server_send, mut server_recv) = match server_conn.connect().await {
         Ok(s) => s,
@@ -195,19 +195,19 @@ async fn handle_response(
     {
         client_msg_size += s;
         incoming.extend_from_slice(&client_recv_buffer[0..s]);
-        println!(
-            "(Stabilize) Received from Client stream: {}",
+        log::info!(
+            "Received from Client stream: {}",
             std::str::from_utf8(&client_recv_buffer[0..s]).unwrap()
         );
     }
-    println!(
-        "(Stabilize) Received {} bytes from Client stream",
+    log::info!(
+        "Received {} bytes from Client stream",
         client_msg_size
     );
 
     match filter(&client_recv_buffer[0..client_msg_size], Filter::NoFilter) {
         Some(_) => {
-            println!("Message passed through Client filtering");
+            log::info!("Message passed through Client filtering");
         }
         None => {
             server_send.finish().await?;
@@ -221,7 +221,7 @@ async fn handle_response(
         .write_all(&client_recv_buffer[0..client_msg_size])
         .await?;
     server_send.finish().await?;
-    println!("(Stabilize) Written to server");
+    log::info!("Written to server");
 
     while let Some(s) = server_recv
         .read(&mut server_recv_buffer)
@@ -230,7 +230,7 @@ async fn handle_response(
     {
         server_msg_size += s;
         incoming.extend_from_slice(&server_recv_buffer[0..s]);
-        println!(
+        log::info!(
             "(Stabilize) Received from Server stream: {}",
             std::str::from_utf8(&server_recv_buffer[0..s]).unwrap()
         );
@@ -238,7 +238,7 @@ async fn handle_response(
 
     match filter(&server_recv_buffer[0..server_msg_size], Filter::NoFilter) {
         Some(_) => {
-            println!("Message passed through Server filtering");
+            log::info!("Message passed through Server filtering");
         }
         None => {
             server_send.finish().await?;
@@ -248,16 +248,16 @@ async fn handle_response(
         }
     };
 
-    println!("(Stabilize) Writing message to send client stream...");
+    log::info!("Writing message to send client stream...");
     client_send
         .write_all(&server_recv_buffer[0..server_msg_size])
         .await?;
 
-    println!("(Stabilize) Closing send stream...");
+    log::info!("Closing send stream...");
     client_send.finish().await?;
     server_conn.close().await;
 
-    println!("(Stabilize) Response handled!\n");
+    log::info!("Response handled!\n");
     Ok(())
 }
 
