@@ -169,3 +169,20 @@ async fn test_client_connect() {
         None => assert!(false)
     };
 }
+
+#[tokio::test]
+async fn test_client_disconnect() {
+    let serverpool = Arc::new(ServerPool::create_from_file("test_data/test_config3.toml", Algo::RoundRobin));
+    let server: SocketAddr = "127.0.0.1:5347".parse().unwrap();
+    let client: SocketAddr = "127.0.0.1:5348".parse().unwrap();
+    serverpool.client_connect(client, server).await;
+    match serverpool.find_client_server(client).await {
+        Some(addr) => assert_eq!(server, addr),
+        None => assert!(false)
+    };
+    serverpool.client_disconnect(client).await;
+    match serverpool.find_client_server(client).await {
+        Some(_) => assert!(false),
+        None => assert!(true)
+    };
+}

@@ -276,6 +276,11 @@ impl ServerPool {
         (*add).insert(client, server);
     }
 
+    pub async fn client_disconnect(&self, client: SocketAddr){
+        let mut remove = self.sessions.write().await;
+        (*remove).remove(&client);
+    }
+
 
 
     /// Function to check if a server is alive at the specified addr port. It will send a short
