@@ -1,4 +1,4 @@
-use std::{error::Error, fs::File, io::prelude::*, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{error::Error, fs::File, io::prelude::*, net::SocketAddr, path::PathBuf, sync::Arc, collections::HashMap};
 
 use anyhow::{Context, Result};
 use rand::Rng;
@@ -163,6 +163,7 @@ impl Server {
 /// ServerPool struct contains a list of servers and data about them,
 /// as well as the RoundRobin counter for selecting a server.
 pub struct ServerPool {
+    sessions: RwLock<HashMap<SocketAddr, Vec<SocketAddr>>>,
     pub servers: Vec<(Server, RwLock<ServerInfo>)>,
     current: RwLock<usize>,
     pub previous: RwLock<i16>,
@@ -218,6 +219,7 @@ impl ServerPool {
         }
 
         ServerPool {
+            sessions: RwLock::new(HashMap::new()),
             servers: list,
             current: RwLock::new(0),
             previous: RwLock::new(-1),
@@ -230,6 +232,7 @@ impl ServerPool {
     /// Create a new, blank ServerPool object
     pub fn new() -> ServerPool {
         ServerPool {
+            sessions: RwLock::new(HashMap::new()),
             servers: Vec::new(),
             current: RwLock::new(0),
             previous: RwLock::new(-1),
