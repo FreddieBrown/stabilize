@@ -163,7 +163,7 @@ impl Server {
 /// ServerPool struct contains a list of servers and data about them,
 /// as well as the RoundRobin counter for selecting a server.
 pub struct ServerPool {
-    sessions: RwLock<HashMap<SocketAddr, Vec<SocketAddr>>>,
+    sessions: RwLock<HashMap<SocketAddr, SocketAddr>>,
     pub servers: Vec<(Server, RwLock<ServerInfo>)>,
     current: RwLock<usize>,
     pub previous: RwLock<i16>,
@@ -262,6 +262,21 @@ impl ServerPool {
             Algo::WeightedRoundRobin => Algo::weighted_round_robin(pool).await,
         }
     }
+
+    pub async fn find_client_server(&self, client: SocketAddr) -> Option<SocketAddr>{
+        let find = self.sessions.read().await;
+        match find.get(&client) {
+            Some(addr) => Some(addr.to_string().parse().unwrap()),
+            None => None,
+        }
+    }
+
+    pub async fn client_connect(&self, client: SocketAddr, server: SocketAddr){
+        let mut add = self.sessions.write().await;
+        (*add).insert(client, server);
+    }
+
+
 
     /// Function to check if a server is alive at the specified addr port. It will send a short
     /// message to the port and will wait for a response. If there is no response, it will assume

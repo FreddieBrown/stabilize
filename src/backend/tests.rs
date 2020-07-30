@@ -156,3 +156,16 @@ async fn test_check_health_runner() {
     assert_eq!(readinfo1.alive, true);
     assert_eq!(readinfo2.alive, false);
 }
+
+
+#[tokio::test]
+async fn test_client_connect() {
+    let serverpool = Arc::new(ServerPool::create_from_file("test_data/test_config3.toml", Algo::RoundRobin));
+    let server: SocketAddr = "127.0.0.1:5347".parse().unwrap();
+    let client: SocketAddr = "127.0.0.1:5348".parse().unwrap();
+    serverpool.client_connect(client, server).await;
+    match serverpool.find_client_server(client).await {
+        Some(addr) => assert_eq!(server, addr),
+        None => assert!(false)
+    };
+}
