@@ -1,7 +1,6 @@
 language: rust
 os:
   - linux
-  - osx
 cache: cargo
 script:
   - cargo build --verbose --all
