@@ -131,7 +131,6 @@ pub fn generate_futures(
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
 
     let client = QuicClient::new("127.0.0.1:5000").await?;
 
