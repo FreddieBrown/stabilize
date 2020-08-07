@@ -30,7 +30,7 @@ async fn test_stab_to_server() -> Result<()> {
         "(Stabilize Test) Server given from server pool: {}",
         socket_addr
     );
-    tokio::time::delay_for(Duration::new(1, 0)).await;
+    tokio::time::delay_for(Duration::new(3, 0)).await;
     let mut server_conn =
         match backend::ServerConnect::start(&socket_addr, String::from("cstm-01")).await {
             Ok(conn) => conn,
@@ -85,7 +85,7 @@ async fn test_client_to_server() -> Result<()> {
     // Only send one message
 
     tokio::spawn(async move {
-        tokio::time::delay_for(Duration::new(2, 0)).await;
+        tokio::time::delay_for(Duration::new(3, 0)).await;
         let client = client::QuicClient::new("127.0.0.1:5000").await.unwrap();
         for _ in 1..2 {
             let mut requests = client::generate_futures(&client);
