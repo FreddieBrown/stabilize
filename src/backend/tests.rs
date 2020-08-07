@@ -186,3 +186,27 @@ async fn test_client_disconnect() {
         None => assert!(true)
     };
 }
+
+#[tokio::test]
+async fn test_check_sessions() {
+    let serverpool = Arc::new(ServerPool::create_from_file("test_data/test_config3.toml", Algo::RoundRobin));
+    let server: SocketAddr = "127.0.0.1:5347".parse().unwrap();
+    let client: SocketAddr = "127.0.0.1:5348".parse().unwrap();
+    serverpool.client_connect(client, server).await;
+    let serve_clone = serverpool.clone();
+    match Algo::check_sessions(&serve_clone, client).await{
+        Some(serve) => assert_eq!(serve.get_quic(), server),
+        _ => assert!(false)
+    };
+}
+
+#[tokio::test]
+async fn test_check_no_sessions() {
+    let serverpool = Arc::new(ServerPool::create_from_file("test_data/test_config3.toml", Algo::RoundRobin));
+    let client: SocketAddr = "127.0.0.1:5348".parse().unwrap();
+    let serve_clone = serverpool.clone();
+    match Algo::check_sessions(&serve_clone, client).await{
+        Some(_) => assert!(false),
+        _ => assert!(true)
+    };
+}

@@ -40,15 +40,9 @@ pub async fn build_and_run_server(
     while let Some(conn) = incoming.next().await {
         let opt_clone = opt.clone();
         log::info!("{}: new connection!", socket_addr);
-        let server = ServerPool::get_next(&serverpool_in).await;
-        log::info!(
-            "Server given from server pool: {}",
-            server.get_quic()
-        );
         tokio::spawn(
             handle_conn(
                 conn,
-                server.get_quic(),
                 serverpool_in.clone(),
                 opt_clone.protocol,
             )
@@ -95,14 +89,8 @@ pub async fn build_and_run_test_server(
     while count != 1 {
         let conn = incoming.next().await.unwrap();
         log::info!("{}: new connection!", socket_addr);
-        let server = ServerPool::get_next(&serverpool_in).await;
-        log::info!(
-            "Server given from server pool: {}",
-            server.get_quic()
-        );
         handle_conn(
             conn,
-            server.get_quic(),
             serverpool_in.clone(),
             protocol.clone(),
         )
@@ -119,15 +107,32 @@ pub async fn build_and_run_test_server(
 /// message has been received from the client.
 async fn handle_conn(
     conn: quinn::Connecting,
-    server: SocketAddr,
     serverpool: Arc<ServerPool>,
     protocol: String,
 ) -> Result<()> {
     let quinn::NewConnection {
-        connection: _connection,
+        connection: connection_obj,
         mut bi_streams,
         ..
     } = conn.await?;
+
+
+    let server_obj = match Algo::check_sessions(&serverpool, connection_obj.remote_address()).await{
+        Some(s) => {
+            log::info!("Found Address in sticky table: {:?} ", s.get_quic());
+            s},
+        _ => ServerPool::get_next(&serverpool).await
+    };
+
+    let server = server_obj.get_quic();
+    let client = connection_obj.remote_address();
+
+    log::info!(
+        "Server given from server pool: {}",
+        server
+    );
+
+    
 
     // dispatch the actual handling as another future. concurrency!
     async {
@@ -148,10 +153,15 @@ async fn handle_conn(
                 Ok(conn) => conn,
                 Err(_) => panic!("(Stabilize) Server isn't alive"),
             };
+
+            // Here is where the connection should be registered to the sticky sessions hashmap
+            serverpool.client_connect(client, server).await;
+            assert_eq!(serverpool.find_client_server(client).await, Some(server));
+
             // Spawn message handling task
             tokio::spawn(
                 handle_response(client_streams, server_conn)
-                    .unwrap_or_else(move |e| eprintln!("(Stabilize) Response failed: {}", e)),
+                    .unwrap_or_else(move |e| log::error!("(Stabilize) Response failed: {}", e)),
             );
         }
         Ok(())

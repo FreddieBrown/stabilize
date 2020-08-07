@@ -12,7 +12,7 @@ fn main() {
     let opt = Opt::from_args();
     let code = {
         if let Err(e) = run(opt) {
-            eprintln!("ERROR: {}", e);
+            log::error!("ERROR: {}", e);
             1
         } else {
             0
