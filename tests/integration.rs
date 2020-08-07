@@ -30,7 +30,7 @@ async fn test_stab_to_server() -> Result<()> {
         "(Stabilize Test) Server given from server pool: {}",
         socket_addr
     );
-    tokio::time::delay_for(Duration::new(3, 0)).await;
+    tokio::time::delay_for(Duration::new(5, 0)).await;
     let mut server_conn =
         match backend::ServerConnect::start(&socket_addr, String::from("cstm-01")).await {
             Ok(conn) => conn,
