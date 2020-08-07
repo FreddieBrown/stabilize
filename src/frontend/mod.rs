@@ -116,16 +116,22 @@ async fn handle_conn(
         ..
     } = conn.await?;
 
-
+    let client = connection_obj.remote_address();
     let server_obj = match Algo::check_sessions(&serverpool, connection_obj.remote_address()).await{
         Some(s) => {
             log::info!("Found Address in sticky table: {:?} ", s.get_quic());
             s},
-        _ => ServerPool::get_next(&serverpool).await
+        _ => {
+            let server_temp = ServerPool::get_next(&serverpool).await;
+            // Here is where the connection should be registered to the sticky sessions hashmap
+            serverpool.client_connect(client, server_temp.get_quic()).await;
+            assert_eq!(serverpool.find_client_server(client).await, Some(server_temp.get_quic()));
+            server_temp
+        }
     };
 
     let server = server_obj.get_quic();
-    let client = connection_obj.remote_address();
+    
 
     log::info!(
         "Server given from server pool: {}",
@@ -153,10 +159,6 @@ async fn handle_conn(
                 Ok(conn) => conn,
                 Err(_) => panic!("(Stabilize) Server isn't alive"),
             };
-
-            // Here is where the connection should be registered to the sticky sessions hashmap
-            serverpool.client_connect(client, server).await;
-            assert_eq!(serverpool.find_client_server(client).await, Some(server));
 
             // Spawn message handling task
             tokio::spawn(

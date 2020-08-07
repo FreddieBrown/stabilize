@@ -36,9 +36,11 @@ impl Algo {
                 for (server, locked_info) in pool.servers.iter() {
                     let read_info = locked_info.read().await;
                     if server.get_quic() == addr && read_info.alive{
+                        log::info!("Found server is alive");
                         return Some(server);
                     }
                     else if server.get_quic() == addr && !read_info.alive {
+                        log::info!("Found server is dead");
                         pool.client_disconnect(client).await;
                         return None;
                     }
@@ -295,7 +297,10 @@ impl ServerPool {
     pub async fn find_client_server(&self, client: SocketAddr) -> Option<SocketAddr>{
         let find = self.sessions.read().await;
         match find.get(&client) {
-            Some(addr) => Some(addr.to_string().parse().unwrap()),
+            Some(addr) => {
+                log::info!("Found Server");
+                Some(addr.to_string().parse().unwrap())
+            },
             None => None,
         }
     }
