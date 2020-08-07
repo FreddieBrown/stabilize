@@ -1,4 +1,4 @@
-use std::{error::Error, fs::File, io::prelude::*, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{error::Error, fs::File, io::prelude::*, net::SocketAddr, path::PathBuf, sync::Arc, collections::HashMap};
 
 use anyhow::{Context, Result};
 use rand::Rng;
@@ -19,12 +19,39 @@ impl Config {
 }
 
 pub enum Algo {
+    CheckSessions,
     RoundRobin,
     LeastConnections,
     WeightedRoundRobin,
 }
 
 impl Algo {
+    /// Checks the sessions hashmap to see if there are any sessions that 
+    /// the algo should try and connect to. If there are, and the server is 
+    /// still alive, then that server should be used. Otherwise None should be
+    /// returned.
+    pub async fn check_sessions(pool: &ServerPool, client: SocketAddr) -> Option<&Server> {
+        match pool.find_client_server(client).await {
+            Some(addr) => {
+                for (server, locked_info) in pool.servers.iter() {
+                    let read_info = locked_info.read().await;
+                    if server.get_quic() == addr && read_info.alive{
+                        return Some(server);
+                    }
+                    else if server.get_quic() == addr && !read_info.alive {
+                        pool.client_disconnect(client).await;
+                        return None;
+                    }
+                }
+
+            },
+            _ => log::warn!("No Server")
+        };
+
+        None
+    }
+
+
     /// Load Balancing algorithm. Implementation of the round robin algorithm.
     /// This will cycle through each server and return the next one each time.
     async fn round_robin(pool: &ServerPool) -> &Server {
@@ -163,6 +190,7 @@ impl Server {
 /// ServerPool struct contains a list of servers and data about them,
 /// as well as the RoundRobin counter for selecting a server.
 pub struct ServerPool {
+    pub sessions: RwLock<HashMap<SocketAddr, SocketAddr>>,
     pub servers: Vec<(Server, RwLock<ServerInfo>)>,
     current: RwLock<usize>,
     pub previous: RwLock<i16>,
@@ -218,6 +246,7 @@ impl ServerPool {
         }
 
         ServerPool {
+            sessions: RwLock::new(HashMap::new()),
             servers: list,
             current: RwLock::new(0),
             previous: RwLock::new(-1),
@@ -230,6 +259,7 @@ impl ServerPool {
     /// Create a new, blank ServerPool object
     pub fn new() -> ServerPool {
         ServerPool {
+            sessions: RwLock::new(HashMap::new()),
             servers: Vec::new(),
             current: RwLock::new(0),
             previous: RwLock::new(-1),
@@ -257,8 +287,35 @@ impl ServerPool {
             Algo::RoundRobin => Algo::round_robin(pool).await,
             Algo::LeastConnections => Algo::least_connections(pool).await,
             Algo::WeightedRoundRobin => Algo::weighted_round_robin(pool).await,
+            _ => panic!("Wrong Algo used to get next Server")
         }
     }
+
+    /// Function used to see if a client previously connected to a server
+    pub async fn find_client_server(&self, client: SocketAddr) -> Option<SocketAddr>{
+        let find = self.sessions.read().await;
+        match find.get(&client) {
+            Some(addr) => Some(addr.to_string().parse().unwrap()),
+            None => None,
+        }
+    }
+
+    /// Part of client connection flow. Will add connection to the sticky 
+    /// sessions hashmap
+    pub async fn client_connect(&self, client: SocketAddr, server: SocketAddr){
+        log::info!("Adding to Sticky Table: {:?} {:?}", client, server);
+        let mut add = self.sessions.write().await;
+        (*add).insert(client, server);
+    }
+
+    /// Removes the sticky session for client. This is due to the
+    /// corressponding server not being alive
+    pub async fn client_disconnect(&self, client: SocketAddr){
+        let mut remove = self.sessions.write().await;
+        (*remove).remove(&client);
+    }
+
+
 
     /// Function to check if a server is alive at the specified addr port. It will send a short
     /// message to the port and will wait for a response. If there is no response, it will assume
