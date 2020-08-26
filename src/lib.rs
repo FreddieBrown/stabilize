@@ -10,12 +10,6 @@ pub mod frontend;
 #[derive(StructOpt, Debug, Clone)]
 #[structopt(name = "stabilize")]
 pub struct Opt {
-    /// file to log TLS keys to for debugging
-    #[structopt(long = "keylog")]
-    keylog: bool,
-    /// Enable stateless retries
-    #[structopt(long = "stateless-retry")]
-    stateless_retry: bool,
     /// Address to listen on
     #[structopt(long = "listen", default_value = "4433")]
     listen: u16,
