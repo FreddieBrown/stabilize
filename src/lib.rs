@@ -26,7 +26,10 @@ pub struct Opt {
     protocol: String,
     // LB Algo to use
     #[structopt(long="algo")]
-    algo: Option<String>
+    algo: Option<String>,
+    // Sticky Sessions switch
+    #[structopt(long="sticky", short="s", parse(try_from_str), default_value = "true")]
+    sticky: bool
 }
 
 #[tokio::main]
@@ -34,7 +37,6 @@ pub async fn run(opt: Opt) -> Result<()> {
     let algo = match &opt.algo {
         Some(algo) => match &algo[..] {
             "wrr" => Algo::WeightedRoundRobin,
-            "cs" => Algo::CheckSessions,
             "lc" => Algo::LeastConnections,
             _ => Algo::RoundRobin
         },
@@ -51,7 +53,8 @@ pub async fn run(opt: Opt) -> Result<()> {
         opt.clone(),
         server_config.clone(),
         "./.config.toml",
-        algo
+        algo,
+        opt.sticky
     ))?;
 
     log::info!("(Stabilize) shutting down...");

@@ -15,7 +15,8 @@ pub async fn build_and_run_server(
     opt: Opt,
     server_config: ServerConfig,
     config: &str,
-    algo: Algo
+    algo: Algo,
+    sticky: bool
 ) -> Result<()> {
     let mut endpoint_builder = quinn::Endpoint::builder();
     endpoint_builder.listen(server_config.clone());
@@ -46,6 +47,7 @@ pub async fn build_and_run_server(
                 conn,
                 serverpool_in.clone(),
                 opt_clone.protocol,
+                sticky
             )
             .unwrap_or_else(move |e| {
                 log::warn!("{}: connection failed: {}", socket_addr, e);
@@ -64,7 +66,8 @@ pub async fn build_and_run_test_server(
     server_config: ServerConfig,
     config: &str,
     protocol: String,
-    algo: Algo
+    algo: Algo, 
+    sticky: bool
 ) -> Result<()> {
     let mut endpoint_builder = quinn::Endpoint::builder();
     endpoint_builder.listen(server_config.clone());
@@ -95,6 +98,7 @@ pub async fn build_and_run_test_server(
             conn,
             serverpool_in.clone(),
             protocol.clone(),
+            sticky
         )
         .unwrap_or_else(move |e| log::warn!("{}: connection failed: {}", socket_addr, e))
         .await;
@@ -111,6 +115,7 @@ async fn handle_conn(
     conn: quinn::Connecting,
     serverpool: Arc<ServerPool>,
     protocol: String,
+    sticky: bool
 ) -> Result<()> {
     let quinn::NewConnection {
         connection: connection_obj,
