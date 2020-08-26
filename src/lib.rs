@@ -28,7 +28,7 @@ pub struct Opt {
     #[structopt(long="algo")]
     algo: Option<String>,
     // Sticky Sessions switch
-    #[structopt(long="sticky", short="s", parse(try_from_str), default_value = "true")]
+    #[structopt(long="sticky", short="s")]
     sticky: bool
 }
 
