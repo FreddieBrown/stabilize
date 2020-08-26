@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::Arc};
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use structopt::{self, StructOpt};
 
 pub mod backend;
@@ -13,74 +13,46 @@ pub struct Opt {
     /// file to log TLS keys to for debugging
     #[structopt(long = "keylog")]
     keylog: bool,
-    /// TLS private key in PEM format
-    #[structopt(parse(from_os_str), short = "k", long = "key", requires = "cert")]
-    key: Option<PathBuf>,
-    /// TLS certificate in PEM format
-    #[structopt(parse(from_os_str), short = "c", long = "cert", requires = "key")]
-    cert: Option<PathBuf>,
     /// Enable stateless retries
     #[structopt(long = "stateless-retry")]
     stateless_retry: bool,
     /// Address to listen on
     #[structopt(long = "listen", default_value = "4433")]
     listen: u16,
+    /// Certificate path
+    #[structopt(long = "cert", short = "c", parse(from_os_str))]
+    cert: Option<PathBuf>,
+    /// Key path
+    #[structopt(long = "key", short = "k", parse(from_os_str))]
+    key: Option<PathBuf>,
+    /// Specify Protocol being used by stabilize
+    #[structopt(long = "protocol", short = "p", default_value = "cstm-01")]
+    protocol: String,
 }
-
-pub const CUSTOM_PROTO: &[&[u8]] = &[b"cstm-01"];
 
 #[tokio::main]
 pub async fn run(opt: Opt) -> Result<()> {
-    tracing_subscriber::fmt::init();
-
-    let server_config = config_builder(opt.clone()).await?;
-
+    let server_config = config_builder(
+        opt.cert.clone(),
+        opt.key.clone(),
+        &[opt.protocol.as_bytes()],
+    )
+    .await?;
     tokio::try_join!(frontend::build_and_run_server(
-        opt.listen,
+        opt.clone(),
         server_config.clone(),
         "./.config.toml"
     ))?;
 
-    println!("(Stabilize) shutting down...");
+    log::info!("(Stabilize) shutting down...");
 
     Ok(())
 }
 
-async fn config_builder(opt: Opt) -> Result<quinn::ServerConfig> {
-    let mut transport_config = quinn::TransportConfig::default();
-    transport_config.stream_window_uni(0);
-    transport_config.stream_window_bidi(10); // so it exhibits the problem quicker
-    transport_config.keep_alive_interval(Some(std::time::Duration::from_secs(1)));
-    let mut quinn_config = quinn::ServerConfig::default();
-    quinn_config.transport = Arc::new(transport_config);
-
-    let mut server_config_builder = quinn::ServerConfigBuilder::new(quinn_config);
-    server_config_builder.enable_keylog();
-    server_config_builder.use_stateless_retry(true);
-    server_config_builder.protocols(CUSTOM_PROTO); // custom protocol
-
-    let key = std::fs::read(&opt.key.unwrap()).map_err(|e| {
-        anyhow!(
-            "(Stabilize) Could not read cert key file from self_signed.key: {}",
-            e
-        )
-    })?;
-    let key = quinn::PrivateKey::from_pem(&key)
-        .map_err(|e| anyhow!("(Stabilize) Could not create PEM from private key: {}", e))?;
-
-    let cert_chain = std::fs::read(&opt.cert.unwrap())
-        .map_err(|e| anyhow!("(Stabilize) Could not read certificate chain file: {}", e))?;
-    let cert_chain = quinn::CertificateChain::from_pem(&cert_chain)
-        .map_err(|e| anyhow!("(Stabilize) Could not create certificate chain: {}", e))?;
-
-    server_config_builder.certificate(cert_chain, key).unwrap();
-    Ok(server_config_builder.build())
-}
-
-pub async fn config_builder_raw(
-    cert: Option<PathBuf>,
-    key: Option<PathBuf>,
-    stateless_retry: bool,
+pub async fn config_builder(
+    cert_opt: Option<PathBuf>,
+    key_opt: Option<PathBuf>,
+    protocol: &[&[u8]],
 ) -> Result<quinn::ServerConfig> {
     let mut transport_config = quinn::TransportConfig::default();
     transport_config.stream_window_uni(0);
@@ -91,23 +63,31 @@ pub async fn config_builder_raw(
 
     let mut server_config_builder = quinn::ServerConfigBuilder::new(quinn_config);
     server_config_builder.enable_keylog();
-    server_config_builder.use_stateless_retry(stateless_retry);
-    server_config_builder.protocols(CUSTOM_PROTO); // custom protocol
-
-    let key = std::fs::read(&key.unwrap()).map_err(|e| {
-        anyhow!(
-            "(Stabilize) Could not read cert key file from self_signed.key: {}",
-            e
-        )
-    })?;
-    let key = quinn::PrivateKey::from_pem(&key)
-        .map_err(|e| anyhow!("(Stabilize) Could not create PEM from private key: {}", e))?;
-
-    let cert_chain = std::fs::read(&cert.unwrap())
-        .map_err(|e| anyhow!("(Stabilize) Could not read certificate chain file: {}", e))?;
-    let cert_chain = quinn::CertificateChain::from_pem(&cert_chain)
-        .map_err(|e| anyhow!("(Stabilize) Could not create certificate chain: {}", e))?;
-
-    server_config_builder.certificate(cert_chain, key).unwrap();
+    server_config_builder.use_stateless_retry(true);
+    server_config_builder.protocols(protocol); // custom protocol
+    let (cert_path, key_path) = match (cert_opt, key_opt) {
+        (Some(c), Some(k)) => (c, k),
+        (_, _) => (PathBuf::from("cert.der"), PathBuf::from("key.der")),
+    };
+    let (cert, key) =
+        match std::fs::read(&cert_path).and_then(|x| Ok((x, std::fs::read(&key_path)?))) {
+            Ok(x) => x,
+            Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+                let key = cert.serialize_private_key_der();
+                let cert = cert.serialize_der().unwrap();
+                std::fs::write(&cert_path, &cert)?;
+                std::fs::write(&key_path, &key)?;
+                (cert, key)
+            }
+            Err(e) => {
+                panic!("failed to read certificate: {}", e);
+            }
+        };
+    let key = quinn::PrivateKey::from_der(&key)?;
+    let cert = quinn::Certificate::from_der(&cert)?;
+    server_config_builder
+        .certificate(quinn::CertificateChain::from_certs(vec![cert]), key)
+        .unwrap();
     Ok(server_config_builder.build())
 }

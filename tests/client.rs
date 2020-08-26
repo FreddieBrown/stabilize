@@ -1,30 +1,9 @@
 use anyhow::{anyhow, Context, Result};
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
-use std::future::Future;
-use std::net::SocketAddr;
-use std::sync::Arc;
+use std::{error::Error, future::Future, net::SocketAddr, path::PathBuf};
 
 pub const CUSTOM_PROTO: &[&[u8]] = &[b"cstm-01"];
-
-mod insecure {
-    use rustls;
-    use webpki;
-
-    pub struct NoCertificateVerification {}
-
-    impl rustls::ServerCertVerifier for NoCertificateVerification {
-        fn verify_server_cert(
-            &self,
-            _roots: &rustls::RootCertStore,
-            _presented_certs: &[rustls::Certificate],
-            _dns_name: webpki::DNSNameRef<'_>,
-            _ocsp: &[u8],
-        ) -> Result<rustls::ServerCertVerified, rustls::TLSError> {
-            Ok(rustls::ServerCertVerified::assertion())
-        }
-    }
-}
 
 #[derive(Clone)]
 pub struct QuicClient {
@@ -33,34 +12,24 @@ pub struct QuicClient {
 }
 
 impl QuicClient {
-    /// Creates a new QuicClient.
-    pub async fn new(addr: &str) -> Result<QuicClient> {
-        QuicClient::create(addr, false).await
-    }
-
     /// Creates a new QuicClient that does not verify certificates. Used mainly for testing.
-    pub async fn new_insecure(addr: &str) -> Result<QuicClient> {
-        QuicClient::create(addr, true).await
+    pub async fn new(addr: &str) -> Result<QuicClient> {
+        QuicClient::create(addr).await
     }
 
     #[doc(hidden)]
-    async fn create(addr: &str, insecure: bool) -> Result<QuicClient> {
+    async fn create(addr: &str) -> Result<QuicClient> {
         let addr: SocketAddr = addr.parse()?;
 
-        let mut crypto = rustls::ClientConfig::new();
-        crypto.versions = vec![rustls::ProtocolVersion::TLSv1_3]; // we only want to support this version.
-        if insecure {
-            crypto
-                .dangerous()
-                .set_certificate_verifier(Arc::new(insecure::NoCertificateVerification {}));
-        }
-
-        let config = quinn::ClientConfig {
-            transport: Arc::new(quinn::TransportConfig::default()),
-            crypto: Arc::new(crypto),
+        let cert_path = PathBuf::from("cert.der");
+        let cert = match std::fs::read(&cert_path) {
+            Ok(x) => x,
+            Err(e) => {
+                panic!("failed to read certificate: {}", e);
+            }
         };
-
-        let mut client_config = quinn::ClientConfigBuilder::new(config);
+        // let cert = quinn::Certificate::from_der(&cert)?;
+        let mut client_config = QuicClient::configure_client(&[&cert]).unwrap();
 
         client_config.protocols(CUSTOM_PROTO);
 
@@ -78,6 +47,16 @@ impl QuicClient {
         } = { conn };
 
         Ok(QuicClient { endpoint, conn })
+    }
+
+    fn configure_client(
+        server_certs: &[&[u8]],
+    ) -> Result<quinn::ClientConfigBuilder, Box<dyn Error>> {
+        let mut cfg_builder = quinn::ClientConfigBuilder::default();
+        for cert in server_certs {
+            cfg_builder.add_certificate_authority(quinn::Certificate::from_der(&cert)?)?;
+        }
+        Ok(cfg_builder)
     }
 
     #[doc(hidden)]
@@ -152,9 +131,8 @@ pub fn generate_futures(
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
 
-    let client = QuicClient::new_insecure("127.0.0.1:5000").await?;
+    let client = QuicClient::new("127.0.0.1:5000").await?;
 
     for _ in 1..2 {
         let mut requests = generate_futures(&client);

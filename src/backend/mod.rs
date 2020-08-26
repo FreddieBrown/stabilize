@@ -1,19 +1,11 @@
-use std::{
-    fs::File,
-    io::{prelude::*, BufReader},
-    net::SocketAddr,
-    sync::Arc,
-};
+use std::{error::Error, fs::File, io::prelude::*, net::SocketAddr, path::PathBuf, sync::Arc, collections::HashMap};
 
 use anyhow::{Context, Result};
-use rustls;
-use tokio::sync::RwLock;
+use rand::Rng;
+use serde::Deserialize;
 use std::time::Duration;
 use tokio::net::UdpSocket;
-use serde::{Serialize, Deserialize};
-use toml::Value;
-
-pub const CUSTOM_PROTO: &[&[u8]] = &[b"cstm-01"];
+use tokio::sync::RwLock;
 
 #[derive(Deserialize, Debug)]
 pub struct Config {
@@ -21,22 +13,149 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn new() -> Config{
-        Config{
-            servers: vec![]
+    pub fn new() -> Config {
+        Config { servers: vec![] }
+    }
+}
+
+pub enum Algo {
+    CheckSessions,
+    RoundRobin,
+    LeastConnections,
+    WeightedRoundRobin,
+}
+
+impl Algo {
+    /// Checks the sessions hashmap to see if there are any sessions that 
+    /// the algo should try and connect to. If there are, and the server is 
+    /// still alive, then that server should be used. Otherwise None should be
+    /// returned.
+    pub async fn check_sessions(pool: &ServerPool, client: SocketAddr) -> Option<&Server> {
+        match pool.find_client_server(client).await {
+            Some(addr) => {
+                for (server, locked_info) in pool.servers.iter() {
+                    let read_info = locked_info.read().await;
+                    if server.get_quic() == addr && read_info.alive{
+                        log::info!("Found server is alive");
+                        return Some(server);
+                    }
+                    else if server.get_quic() == addr && !read_info.alive {
+                        log::info!("Found server is dead");
+                        pool.client_disconnect(client).await;
+                        return None;
+                    }
+                }
+
+            },
+            _ => log::warn!("No Server")
+        };
+
+        None
+    }
+
+
+    /// Load Balancing algorithm. Implementation of the round robin algorithm.
+    /// This will cycle through each server and return the next one each time.
+    async fn round_robin(pool: &ServerPool) -> &Server {
+        let mut r_curr = pool.current.write().await;
+        loop {
+            let (server, server_info) = &pool.servers[*r_curr];
+            let server_info = server_info.read().await;
+            if !server_info.alive {
+                log::info!("Server is not alive: {}", server.get_quic());
+                *r_curr += 1;
+                if *r_curr == pool.servers.len() {
+                    *r_curr = 0;
+                }
+            } else {
+                *r_curr += 1;
+                return server;
+            }
+        }
+    }
+
+    async fn weighted_round_robin(pool: &ServerPool) -> &Server {
+        let mut cw: i16 = 0;
+        let server_num = pool.servers.len();
+        let mut i = pool.previous.write().await;
+        let gcd = pool.gcd.read().await;
+        let max = pool.max.read().await;
+        let mut ret_val: Option<&Server> = None;
+        loop {
+            *i = (*i + 1) % server_num as i16;
+            if *i == 0 {
+                cw = cw - (*gcd as i16);
+                if cw <= 0 {
+                    cw = *max as i16;
+                    if cw == 0 {
+                        ret_val = None;
+                    }
+                }
+            }
+            let (server, _) = &pool.servers[*i as usize];
+            if server.weight as i16 >= cw {
+                ret_val = Some(server);
+            }
+
+            match ret_val {
+                Some(s) => return s,
+                _ => (),
+            };
+        }
+    }
+
+    /// Load balancing algorithm. Implementation of the least connections algorithm
+    /// This will choose the connection which has the fewest current connections.
+    async fn least_connections(pool: &ServerPool) -> &Server {
+        let len = &pool.servers.len();
+        let mut server_place = 0;
+        let mut least_connections = 255;
+        for i in 0..*len {
+            let (server, server_info) = &pool.servers[i];
+            let server_info = server_info.read().await;
+            if !server_info.alive {
+                log::info!("Server is not alive: {}", server.get_quic());
+            } else {
+                if server_info.connections < least_connections {
+                    server_place = i;
+                    least_connections = server_info.connections;
+                }
+            }
+        }
+        let (server, server_info) = &pool.servers[server_place];
+        let mut server_info = server_info.write().await;
+        server_info.connections += 1;
+        server
+    }
+
+    /// Function to help with least connections cleanup and will find entry for server info and will
+    /// decrement the number of active connections.
+    pub async fn decrement_connections(pool: &ServerPool, server_addr: SocketAddr) {
+        // Go into server pool and find info for server
+        // get the write lock and decrement connections
+        for (server, server_info) in &pool.servers {
+            if server.get_quic() == server_addr {
+                let mut server_info = server_info.write().await;
+                server_info.connections -= 1;
+            }
         }
     }
 }
 
 /// Function to encapsulate the state of a server
+#[derive(Deserialize, Debug, Copy, Clone)]
 pub struct ServerInfo {
-    alive: bool,
+    pub alive: bool,
+    pub connections: u16,
 }
 
 impl ServerInfo {
     /// Will create a new ServerInfo object.
     pub fn new() -> ServerInfo {
-        ServerInfo { alive: true }
+        ServerInfo {
+            alive: true,
+            connections: 0,
+        }
     }
 }
 
@@ -46,14 +165,20 @@ impl ServerInfo {
 #[derive(Deserialize, Debug, Copy, Clone)]
 pub struct Server {
     quic: SocketAddr,
-    heartbeat: SocketAddr
+    heartbeat: SocketAddr,
+    pub weight: u16,
 }
 
 /// Functions to help the server to work. Function to build a new
 /// server object and one to return the address.
 impl Server {
     pub fn new(quic: SocketAddr, heartbeat: SocketAddr) -> Server {
-        Server { quic, heartbeat}
+        let mut rng = rand::thread_rng();
+        Server {
+            quic,
+            heartbeat,
+            weight: rng.gen(),
+        }
     }
 
     pub fn get_quic(&self) -> SocketAddr {
@@ -67,8 +192,13 @@ impl Server {
 /// ServerPool struct contains a list of servers and data about them,
 /// as well as the RoundRobin counter for selecting a server.
 pub struct ServerPool {
-    servers: Vec<(Server, RwLock<ServerInfo>)>,
+    pub sessions: RwLock<HashMap<SocketAddr, SocketAddr>>,
+    pub servers: Vec<(Server, RwLock<ServerInfo>)>,
     current: RwLock<usize>,
+    pub previous: RwLock<i16>,
+    max: RwLock<u16>,
+    gcd: RwLock<u16>,
+    pub algo: Algo,
 }
 
 /// ServerPool functions
@@ -76,110 +206,176 @@ impl ServerPool {
     /// This function will go through a config file which contains the
     /// servers it needs to connect to and will build a ServerPool instance
     /// using these server addresses
-    pub fn create_from_file(config: &str) -> ServerPool {
+    pub fn create_from_file(config: &str, algo: Algo) -> ServerPool {
         // Open up file from config path
         // Go through the config and create a HashMap which contains Server structs
         // based on the addresses in the config file
         let mut config_toml = String::from("");
         let mut file = match File::open(&config) {
             Ok(file) => file,
-            Err(_)  => {
+            Err(_) => {
                 panic!("(Stabilize) Could not find config file, using default!");
             }
         };
-    
         file.read_to_string(&mut config_toml)
-                .unwrap_or_else(|err| panic!("(Stabilize) Error while reading config: [{}]", err));
+            .unwrap_or_else(|err| panic!("(Stabilize) Error while reading config: [{}]", err));
 
         let config: Config = toml::from_str(&config_toml).unwrap();
 
         let servers = config.servers;
 
-        println!("{:?}", servers);
+        log::info!("{:?}", servers);
 
-        let list: Vec<_> = servers.iter().map(|s| (s.clone(), RwLock::new(ServerInfo::new())) ).collect();
-            
+        let list: Vec<_> = servers
+            .iter()
+            .map(|s| (s.clone(), RwLock::new(ServerInfo::new())))
+            .collect();
+
+        // calculate total weights of servers
+        let mut max: u16 = 0;
+        let mut weights: Vec<u16> = Vec::new();
+        for (server, _) in &list {
+            if max < server.weight {
+                max = server.weight;
+            }
+            weights.push(server.weight);
+        }
+
+        // find gcd of the weights
+        let mut gcd: u16 = weights[0];
+        for i in 1..weights.len() - 1 {
+            gcd = num::integer::gcd(gcd, weights[i + 1]);
+        }
+
         ServerPool {
+            sessions: RwLock::new(HashMap::new()),
             servers: list,
             current: RwLock::new(0),
+            previous: RwLock::new(-1),
+            max: RwLock::new(max),
+            gcd: RwLock::new(gcd),
+            algo,
         }
     }
 
     /// Create a new, blank ServerPool object
     pub fn new() -> ServerPool {
         ServerPool {
+            sessions: RwLock::new(HashMap::new()),
             servers: Vec::new(),
             current: RwLock::new(0),
+            previous: RwLock::new(-1),
+            max: RwLock::new(0),
+            gcd: RwLock::new(0),
+            algo: Algo::RoundRobin,
         }
     }
 
     /// Add a Server to the ServerPool
-    pub fn add(&mut self, server: Server) {
+    pub async fn add(&mut self, server: Server) {
+        let server_weight = server.weight;
+        let mut gcd = self.gcd.write().await;
+        *gcd = num::integer::gcd(*gcd, server_weight);
+        let mut max = self.max.write().await;
+        *max += server_weight;
         self.servers.push((server, RwLock::new(ServerInfo::new())));
     }
 
     /// Function to get the next Server from the ServerPool.
     /// This is the function which implements the LB algorithms.
-    /// In future, this should be abstracted to allow other LB
-    /// algos to be used to allow variety in the types of load balancer
-    /// algorithms that can be used.
-    pub async fn get_next(&self) -> &Server {
-        let mut r_curr = self.current.write().await;
-        println!("(Stabilize) Getting a server");
-
-        loop {
-            let (server, server_info) = &self.servers[*r_curr];
-            let server_info = server_info.read().await;
-            if !server_info.alive {
-                println!("(Stabilize) Server is not alive: {}", server.get_quic());
-                *r_curr += 1;
-
-                if *r_curr == self.servers.len() {
-                    *r_curr = 0;
-                }
-            } else {
-                *r_curr += 1;
-                return server;
-            }
+    pub async fn get_next(pool: &ServerPool) -> &Server {
+        log::info!("Getting a server");
+        match pool.algo {
+            Algo::RoundRobin => Algo::round_robin(pool).await,
+            Algo::LeastConnections => Algo::least_connections(pool).await,
+            Algo::WeightedRoundRobin => Algo::weighted_round_robin(pool).await,
+            _ => panic!("Wrong Algo used to get next Server")
         }
     }
 
-    /// Function to check if a server is alive at the specified addr port. It will send a short 
-    /// message to the port and will wait for a response. If there is no response, it will assume 
+    /// Function used to see if a client previously connected to a server
+    pub async fn find_client_server(&self, client: SocketAddr) -> Option<SocketAddr>{
+        let find = self.sessions.read().await;
+        match find.get(&client) {
+            Some(addr) => {
+                log::info!("Found Server");
+                Some(addr.to_string().parse().unwrap())
+            },
+            None => None,
+        }
+    }
+
+    /// Part of client connection flow. Will add connection to the sticky 
+    /// sessions hashmap
+    pub async fn client_connect(&self, client: SocketAddr, server: SocketAddr){
+        log::info!("Adding to Sticky Table: {:?} {:?}", client, server);
+        let mut add = self.sessions.write().await;
+        (*add).insert(client, server);
+    }
+
+    /// Removes the sticky session for client. This is due to the
+    /// corressponding server not being alive
+    pub async fn client_disconnect(&self, client: SocketAddr){
+        let mut remove = self.sessions.write().await;
+        (*remove).remove(&client);
+    }
+
+
+
+    /// Function to check if a server is alive at the specified addr port. It will send a short
+    /// message to the port and will wait for a response. If there is no response, it will assume
     /// the server is dead and will move on.
-    pub async fn heartbeat (addr: SocketAddr, home: SocketAddr) -> bool{
-        let mut sock = UdpSocket::bind(home).await.expect(&format!("(Stabilize Health) Couldn't bind socket to address {}", addr));
+    pub async fn heartbeat(addr: SocketAddr, home: SocketAddr) -> bool {
+        let mut sock = UdpSocket::bind(home).await.expect(&format!(
+            "(Health) Couldn't bind socket to address {}",
+            addr
+        ));
         match sock.connect(addr).await {
-            Ok(_) => println!("(Stabilize Health) Connected to address: {}", addr),
-            Err(_) => println!("(Stabilize Health) Did not connect to address: {}", addr)
+            Ok(_) => log::info!("(Health) Connected to address: {}", addr),
+            Err(_) => log::warn!("(Health) Did not connect to address: {}", addr),
         };
         sock.send("a".as_bytes()).await.unwrap();
         let mut buf = [0; 1];
         match sock.recv(&mut buf).await {
-            Ok(_) => {println!("(Stabilize Health) Received: {:?}, Server Alive {}", &buf, &addr); true},
-            Err(_) => {println!("(Stabilize Health) Server dead: {}", &addr); false}
+            Ok(_) => {
+                log::info!(
+                    "(Health) Received: {:?}, Server Alive {}",
+                    &buf, &addr
+                );
+                true
+            }
+            Err(_) => {
+                log::warn!("(Health) Server dead: {}", &addr);
+                false
+            }
         }
     }
 
     /// Function to update a specified server info struct with information about that server
-    pub async fn update_server_info(server: &Server, home: SocketAddr, info: &mut ServerInfo){
-        println!("(Stabilize Health) Changing the status of {}", server.get_quic());
+    pub async fn update_server_info(server: &Server, home: SocketAddr, info: &mut ServerInfo) {
+        log::info!(
+            "(Health) Changing the status of {}",
+            server.get_quic()
+        );
         info.alive = ServerPool::heartbeat(server.get_hb(), home).await;
-        println!("(Stabilize Health) Alive: {}", info.alive);
+        log::info!("(Health) Alive: {}", info.alive);
     }
 
     /// This function will go through a serverpool and check the health of each server
     pub async fn check_health(serverpool: Arc<ServerPool>, home: SocketAddr) {
-        println!("(Stabilize Health) This function will start to check the health of servers in the server pool");
+        log::info!("(Health) This function will start to check the health of servers in the server pool");
         // Loop through all servers in serverpool
-        for (server, servinfo) in &serverpool.servers{
+        for (server, servinfo) in &serverpool.servers {
             // Run check on each server
-            println!("(Stabilize Health) Quic: {}, HB: {}",&server.quic, &server.heartbeat);
-            let mut status;
+            log::info!(
+                "(Health) Quic: {}, HB: {}",
+                &server.quic, &server.heartbeat
+            );
+            let status;
             {
                 let read = servinfo.read().await;
                 status = read.alive;
-            } 
+            }
             let mut temp = ServerInfo::new();
             ServerPool::update_server_info(&server, home, &mut temp).await;
             // If it has changed, then update the server status
@@ -189,13 +385,12 @@ impl ServerPool {
             }
             // Otherwise, move onto next server
         }
-
     }
 
-    /// This function will run the health checking functionality in a loop. Each time it is complete, 
-    /// time will be taken for the function to rest before checking health again. This should be run 
+    /// This function will run the health checking functionality in a loop. Each time it is complete,
+    /// time will be taken for the function to rest before checking health again. This should be run
     /// on a thread which lasts the length of the program.
-    pub async fn check_health_runner(serverpool: Arc<ServerPool>, home: SocketAddr, delay: u64){
+    pub async fn check_health_runner(serverpool: Arc<ServerPool>, home: SocketAddr, delay: u64) {
         // Abstract the number of seconds out to another place
         let mut interval = tokio::time::interval(Duration::from_secs(delay));
 
@@ -204,7 +399,6 @@ impl ServerPool {
             ServerPool::check_health(sp, home).await;
             interval.tick().await;
         }
-
     }
 }
 
@@ -228,21 +422,17 @@ impl ServerConnect {
 
     /// Creates a ServerConnect object and configures a connection between Stabilize and
     /// another Quic server.
-    pub async fn start(addr: &SocketAddr) -> Result<ServerConnect> {
-        let mut crypto = rustls::ClientConfig::new();
-        crypto.versions = vec![rustls::ProtocolVersion::TLSv1_3];
-
-        // Change this to make it more secure
-        crypto
-            .dangerous()
-            .set_certificate_verifier(Arc::new(insecure::NoCertificateVerification {}));
-
-        let config = quinn::ClientConfig {
-            transport: Arc::new(quinn::TransportConfig::default()),
-            crypto: Arc::new(crypto),
+    pub async fn start(addr: &SocketAddr, protocol: String) -> Result<ServerConnect> {
+        let cert_path = PathBuf::from("cert.der");
+        let cert = match std::fs::read(&cert_path) {
+            Ok(x) => x,
+            Err(e) => {
+                panic!("failed to read certificate: {}", e);
+            }
         };
-        let mut client_config = quinn::ClientConfigBuilder::new(config);
-        client_config.protocols(CUSTOM_PROTO);
+        // let cert = quinn::Certificate::from_der(&cert)?;
+        let mut client_config = ServerConnect::configure_client(&[&cert]).unwrap();
+        client_config.protocols(&[protocol.as_bytes()]);
         let (endpoint, _) = quinn::Endpoint::builder()
             .bind(&"[::]:0".parse().unwrap())
             .context("(Stabilize) Could not bind client endpoint")?;
@@ -259,26 +449,15 @@ impl ServerConnect {
             connection: conn,
         })
     }
-}
 
-/// Module that allows for insurce connection. Change in future to
-/// enforce secure connections.
-mod insecure {
-    use rustls;
-    use webpki;
-
-    pub struct NoCertificateVerification {}
-
-    impl rustls::ServerCertVerifier for NoCertificateVerification {
-        fn verify_server_cert(
-            &self,
-            _roots: &rustls::RootCertStore,
-            _presented_certs: &[rustls::Certificate],
-            _dns_name: webpki::DNSNameRef<'_>,
-            _ocsp: &[u8],
-        ) -> Result<rustls::ServerCertVerified, rustls::TLSError> {
-            Ok(rustls::ServerCertVerified::assertion())
+    fn configure_client(
+        server_certs: &[&[u8]],
+    ) -> Result<quinn::ClientConfigBuilder, Box<dyn Error>> {
+        let mut cfg_builder = quinn::ClientConfigBuilder::default();
+        for cert in server_certs {
+            cfg_builder.add_certificate_authority(quinn::Certificate::from_der(&cert)?)?;
         }
+        Ok(cfg_builder)
     }
 }
 
