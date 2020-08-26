@@ -27,18 +27,29 @@ For help:
 stabilize 1.0.0
 
 USAGE:
-    main [OPTIONS]
+    main [FLAGS] [OPTIONS]
 
 FLAGS:
     -h, --help       Prints help information
+    -s, --sticky     Sticky Sessions switch
     -V, --version    Prints version information
 
 OPTIONS:
+        --algo <algo>            LB Algo to use
     -c, --cert <cert>            Certificate path
     -k, --key <key>              Key path
         --listen <listen>        Address to listen on [default: 4433]
     -p, --protocol <protocol>    Specify Protocol being used by stabilize [default: cstm-01]
 ```
+
+### Choosing a Load Balancing Algorithm
+
+Stabilize offers different choices of algorithms which can be used to distribute traffic between nodes. This can be set when running the program. The standard one used is Round Robin. This is a basic algorithm which cycles through servers and distributes a connection to each server in turn. Other options include:
+
+- `wrr`: This is Weighted Round Robin. A server weight can be assigned in the config file and this is used to determine which server will be used next. Otherwise, it is the same as round robin. Weights could be used to determine which server has the most compute power and can deal with the most connections.
+- `lc`: This is Least Connections. It will choose the next server based on the one which has the least active connections. This is a slightly more advanced algorithm than Round Robin as it takes into account server load.
+
+On top of these algorithms, *sticky sessions* can be used. These allow a client which has previously connected to connect to the same server it used previously. 
 
 ### Changing Certificates 
 

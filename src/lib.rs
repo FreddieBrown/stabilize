@@ -24,10 +24,10 @@ pub struct Opt {
     /// Specify Protocol being used by stabilize
     #[structopt(long = "protocol", short = "p", default_value = "cstm-01")]
     protocol: String,
-    // LB Algo to use
+    /// LB Algo to use
     #[structopt(long="algo")]
     algo: Option<String>,
-    // Sticky Sessions switch
+    /// Sticky Sessions switch
     #[structopt(long="sticky", short="s")]
     sticky: bool
 }
