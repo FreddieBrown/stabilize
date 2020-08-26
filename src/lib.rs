@@ -6,6 +6,8 @@ use structopt::{self, StructOpt};
 pub mod backend;
 pub mod frontend;
 
+use backend::Algo;
+
 // From Quinn example
 #[derive(StructOpt, Debug, Clone)]
 #[structopt(name = "stabilize")]
@@ -22,10 +24,23 @@ pub struct Opt {
     /// Specify Protocol being used by stabilize
     #[structopt(long = "protocol", short = "p", default_value = "cstm-01")]
     protocol: String,
+    // LB Algo to use
+    #[structopt(long="algo")]
+    algo: Option<String>
 }
 
 #[tokio::main]
 pub async fn run(opt: Opt) -> Result<()> {
+    let algo = match &opt.algo {
+        Some(algo) => match &algo[..] {
+            "wrr" => Algo::WeightedRoundRobin,
+            "cs" => Algo::CheckSessions,
+            "lc" => Algo::LeastConnections,
+            _ => Algo::RoundRobin
+        },
+    _ => Algo::RoundRobin
+    };
+
     let server_config = config_builder(
         opt.cert.clone(),
         opt.key.clone(),
@@ -35,7 +50,8 @@ pub async fn run(opt: Opt) -> Result<()> {
     tokio::try_join!(frontend::build_and_run_server(
         opt.clone(),
         server_config.clone(),
-        "./.config.toml"
+        "./.config.toml",
+        algo
     ))?;
 
     log::info!("(Stabilize) shutting down...");

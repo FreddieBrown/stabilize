@@ -117,7 +117,8 @@ async fn test_client_to_server() -> Result<()> {
         5000,
         server_config.clone(),
         "test_data/test_config1.toml",
-        String::from("cstm-01")
+        String::from("cstm-01"),
+        stabilize::backend::Algo::RoundRobin
     ))?;
 
     Ok(())

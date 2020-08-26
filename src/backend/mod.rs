@@ -18,6 +18,7 @@ impl Config {
     }
 }
 
+#[derive(Debug)]
 pub enum Algo {
     CheckSessions,
     RoundRobin,

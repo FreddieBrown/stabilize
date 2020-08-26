@@ -27,13 +27,11 @@ For help:
 stabilize 1.0.0
 
 USAGE:
-    main [FLAGS] [OPTIONS]
+    main [OPTIONS]
 
 FLAGS:
-    -h, --help               Prints help information
-        --keylog             file to log TLS keys to for debugging
-        --stateless-retry    Enable stateless retries
-    -V, --version            Prints version information
+    -h, --help       Prints help information
+    -V, --version    Prints version information
 
 OPTIONS:
     -c, --cert <cert>            Certificate path
