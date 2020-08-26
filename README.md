@@ -4,29 +4,30 @@
 
 ## QUIC load balancer written in Rust
 
-To run, use the command `cargo run -- --cert signed.pem --key signed.key --listen 5000`.
+To run, use the command `cargo run -- --listen 5000`.
 
 To use the test client and server, use `cargo run --bin <choice>` where `<choice>` is replaced by either `client` or `server`.
 
 To have clients associated with `Stabilize`, put their details in a `.config.toml` file. The structure of this is:
 
 ```toml
+protocol = "cstm-01"
 servers = [
-    {quic = "127.0.0.1:5347", heartbeat = "127.0.0.1:6347"},
-    {quic = "127.0.0.1:5348", heartbeat = "127.0.0.1:6348"},
-    {quic = "127.0.0.1:5349", heartbeat = "127.0.0.1:6349"}
+    {quic = "127.0.0.1:5347", heartbeat = "127.0.0.1:6347", weight = 1},
+    {quic = "127.0.0.1:5348", heartbeat = "127.0.0.1:6348", weight = 2},
+    {quic = "127.0.0.1:5349", heartbeat = "127.0.0.1:6349", weight = 3}
 ]
 ```
-The `quic` address is that which the `Stabilize` balancer will connect to and communicate over mainly. The `heartbeat` port is the one used for server health checking to determine if a fault has occured in a server. This is used regularly by `Stabilize` to ensure the program can service client requests.
+The `quic` address is that which the `Stabilize` balancer will connect to and communicate over mainly. The `heartbeat` port is the one used for server health checking to determine if a fault has occured in a server. This is used regularly by `Stabilize` to ensure the program can service client requests. Additionally, a weighting can be given to each server. This required but is only used when using `Algo::WeightedRoundRobin`.
 
 
 For help: 
 
 ```
-stabilize 0.1.0
+stabilize 1.0.0
 
 USAGE:
-    stabilize [FLAGS] [OPTIONS]
+    main [FLAGS] [OPTIONS]
 
 FLAGS:
     -h, --help               Prints help information
@@ -35,10 +36,20 @@ FLAGS:
     -V, --version            Prints version information
 
 OPTIONS:
-    -c, --cert <cert>        TLS certificate in PEM format
-    -k, --key <key>          TLS private key in PEM format
-        --listen <listen>    Address to listen on [default: 4433]
+    -c, --cert <cert>            Certificate path
+    -k, --key <key>              Key path
+        --listen <listen>        Address to listen on [default: 4433]
+    -p, --protocol <protocol>    Specify Protocol being used by stabilize [default: cstm-01]
 ```
+
+### Changing Certificates 
+
+The program uses `cert.der` and `key.der` by default as its certificate and key. Any custom certificate and key should be named as such for the program to work. If there is no certificate and/or key, Stabilize will create and sign a pair itself. To specify a custom certificate-key pair. The name of the key and certificate can be specified in the options above. If both are not specified, neither will be used and the program will revert to creating a signing keys, if they don't exist for `cert.der` and `key.der`. Additionally, the certificate and key can just be named `cert.der` and `key.der` to save time when configuring startup.
+
+### Changing Protocol
+
+Stabilize uses a custom protocol as a basis (cstm-01). If another protocol is desired to be used, it is set as a command line argument. For example, to use another protocol like `hq-29`, you would run this as `cargo run -- --protocol hq-29`.
+
 
 ## Plan
 

@@ -5,9 +5,11 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::UdpSocket;
+use std::path::PathBuf;
 
 pub const CUSTOM_PROTO: &[&[u8]] = &[b"cstm-01"];
 
+#[allow(dead_code)]
 fn main() {
     let exit_code = if let Err(e) = main_run(true) {
         eprintln!("ERROR: {}", e);
@@ -27,6 +29,16 @@ pub async fn main_run(while_toggle: bool) -> Result<()> {
 
 pub async fn run(while_toggle: bool, quic: u16, hb: u16) -> Result<()> {
 
+    let server_config = config_builder().await?;
+
+    tokio::try_join!(build_and_run_server(quic, hb, server_config.clone(), while_toggle))?;
+
+    println!("(Server) Shutting down...");
+
+    Ok(())
+}
+
+pub async fn config_builder() -> Result<quinn::ServerConfig> {
     let mut transport_config = quinn::TransportConfig::default();
     transport_config.stream_window_uni(0);
     transport_config.stream_window_bidi(10); // so it exhibits the problem quicker
@@ -39,28 +51,26 @@ pub async fn run(while_toggle: bool, quic: u16, hb: u16) -> Result<()> {
     server_config_builder.use_stateless_retry(true);
     server_config_builder.protocols(CUSTOM_PROTO); // custom protocol
 
-    let key_path = std::path::PathBuf::from("signed.key");
-
-    let key = std::fs::read(&key_path)
-        .map_err(|e| anyhow!("(Server) Could not read cert key file from self_signed.key: {}", e))?;
-    let key = quinn::PrivateKey::from_pem(&key)
-        .map_err(|e| anyhow!("(Server) Could not create PEM from private key: {}", e))?;
-
-    let cert_path = std::path::PathBuf::from("signed.pem");
-    let cert_chain = std::fs::read(&cert_path)
-        .map_err(|e| anyhow!("(Server) Could not read certificate chain file: {}", e))?;
-    let cert_chain = quinn::CertificateChain::from_pem(&cert_chain)
-        .map_err(|e| anyhow!("(Server) Could not create certificate chain: {}", e))?;
-
-    server_config_builder.certificate(cert_chain, key)?;
-
-    let server_config = server_config_builder.build();
-
-    tokio::try_join!(build_and_run_server(quic, hb, server_config.clone(), while_toggle))?;
-
-    println!("(Server) Shutting down...");
-
-    Ok(())
+    let key_path = PathBuf::from("key.der");
+    let cert_path = PathBuf::from("cert.der");
+    let (cert, key) = match std::fs::read(&cert_path).and_then(|x| Ok((x, std::fs::read(&key_path)?))) {
+        Ok(x) => x,
+        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+            let key = cert.serialize_private_key_der();
+            let cert = cert.serialize_der().unwrap();
+            std::fs::write(&cert_path, &cert)?;
+            std::fs::write(&key_path, &key)?;
+            (cert, key)
+        }
+        Err(e) => {
+            panic!("failed to read certificate: {}", e);
+        }
+    };
+    let key = quinn::PrivateKey::from_der(&key)?;
+    let cert = quinn::Certificate::from_der(&cert)?;
+    server_config_builder.certificate(quinn::CertificateChain::from_certs(vec![cert]), key).unwrap();
+    Ok(server_config_builder.build())
 }
 
 pub async fn build_and_run_server(quic: u16, hb: u16, server_config: ServerConfig, while_toggle: bool) -> Result<()> {
