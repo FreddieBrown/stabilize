@@ -1,7 +1,8 @@
 use anyhow::{anyhow, Context, Result};
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
-use std::{error::Error, future::Future, net::SocketAddr, path::PathBuf};
+use std::{error::Error, future::Future, path::PathBuf};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 pub const CUSTOM_PROTO: &[&[u8]] = &[b"cstm-01"];
 
@@ -13,13 +14,12 @@ pub struct QuicClient {
 
 impl QuicClient {
     /// Creates a new QuicClient that does not verify certificates. Used mainly for testing.
-    pub async fn new(addr: &str) -> Result<QuicClient> {
-        QuicClient::create(addr).await
+    pub async fn new(port: u16) -> Result<QuicClient> {
+        QuicClient::create(port).await
     }
 
     #[doc(hidden)]
-    async fn create(addr: &str) -> Result<QuicClient> {
-        let addr: SocketAddr = addr.parse()?;
+    async fn create(port: u16) -> Result<QuicClient> {
 
         let cert_path = PathBuf::from("cert.der");
         let cert = match std::fs::read(&cert_path) {
@@ -33,14 +33,15 @@ impl QuicClient {
 
         client_config.protocols(CUSTOM_PROTO);
 
+        let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
         let (endpoint, _) = quinn::Endpoint::builder()
-            .bind(&"[::]:0".parse().unwrap())
+            .bind(&socket_addr)
             .context("(Client) Could not bind client endpoint")?;
 
         let conn = endpoint
-            .connect_with(client_config.build(), &addr, "localhost")?
+            .connect_with(client_config.build(), &socket_addr, "localhost")?
             .await
-            .context(format!("(Client) Could not connect to {}", &addr))?;
+            .context(format!("(Client) Could not connect to {}", &socket_addr))?;
 
         let quinn::NewConnection {
             connection: conn, ..
@@ -132,7 +133,7 @@ pub fn generate_futures(
 #[tokio::main]
 async fn main() -> Result<()> {
 
-    let client = QuicClient::new("127.0.0.1:5000").await?;
+    let client = QuicClient::new(60612).await?;
 
     for _ in 1..2 {
         let mut requests = generate_futures(&client);
