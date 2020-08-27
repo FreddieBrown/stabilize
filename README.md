@@ -44,7 +44,7 @@ OPTIONS:
 
 ### Choosing a Load Balancing Algorithm
 
-Stabilize offers different choices of algorithms which can be used to distribute traffic between nodes. This can be set when running the program. The standard one used is Round Robin. This is a basic algorithm which cycles through servers and distributes a connection to each server in turn. Other options include:
+Stabilize offers different choices of algorithms which can be used to distribute traffic between nodes. This can be set when running the program. The default one is Round Robin (`rr`). This is a basic algorithm which cycles through servers and distributes a connection to each server in turn. Other options include:
 
 - `wrr`: This is Weighted Round Robin. A server weight can be assigned in the config file and this is used to determine which server will be used next. Otherwise, it is the same as round robin. Weights could be used to determine which server has the most compute power and can deal with the most connections.
 - `lc`: This is Least Connections. It will choose the next server based on the one which has the least active connections. This is a slightly more advanced algorithm than Round Robin as it takes into account server load.

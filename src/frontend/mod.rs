@@ -124,18 +124,24 @@ async fn handle_conn(
     } = conn.await?;
 
     let client = connection_obj.remote_address();
-    let server_obj = match Algo::check_sessions(&serverpool, connection_obj.remote_address()).await{
-        Some(s) => {
-            log::info!("Found Address in sticky table: {:?} ", s.get_quic());
-            s},
-        _ => {
-            let server_temp = ServerPool::get_next(&serverpool).await;
-            // Here is where the connection should be registered to the sticky sessions hashmap
-            serverpool.client_connect(client, server_temp.get_quic()).await;
-            assert_eq!(serverpool.find_client_server(client).await, Some(server_temp.get_quic()));
-            server_temp
-        }
-    };
+    let server_obj;
+    if sticky {
+        server_obj = match Algo::check_sessions(&serverpool, connection_obj.remote_address()).await{
+            Some(s) => {
+                log::info!("Found Address in sticky table: {:?} ", s.get_quic());
+                s},
+            _ => {
+                let server_temp = ServerPool::get_next(&serverpool).await;
+                // Here is where the connection should be registered to the sticky sessions hashmap
+                serverpool.client_connect(client, server_temp.get_quic()).await;
+                assert_eq!(serverpool.find_client_server(client).await, Some(server_temp.get_quic()));
+                server_temp
+            }
+        };
+    }
+    else {
+        server_obj = ServerPool::get_next(&serverpool).await;
+    }
 
     let server = server_obj.get_quic();
     
