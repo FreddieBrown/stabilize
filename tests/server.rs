@@ -6,24 +6,38 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::UdpSocket;
 use std::path::PathBuf;
+use structopt::{self, StructOpt};
 
 pub const CUSTOM_PROTO: &[&[u8]] = &[b"cstm-01"];
 
+#[derive(StructOpt, Debug, Clone)]
+#[structopt(name = "stabilize-server")]
+pub struct Opt {
+    /// Quic port to use for connections
+    #[structopt(long = "quic", short = "q", default_value = "5347")]
+    quic: u16,
+    /// Port to use to send hearbeat over
+    #[structopt(long = "heartbeat", short = "hb", default_value="6347")]
+    hb: u16 
+}
+
 #[allow(dead_code)]
 fn main() {
-    let exit_code = if let Err(e) = main_run(true) {
-        eprintln!("ERROR: {}", e);
-        1
-    } else {
-        0
+    let opt = Opt::from_args();
+    let code = {
+        if let Err(e) = main_run(true, opt) {
+            log::error!("ERROR: {}", e);
+            1
+        } else {
+            0
+        }
     };
-
-    std::process::exit(exit_code);
+    std::process::exit(code);
 }
 
 #[tokio::main]
-pub async fn main_run(while_toggle: bool) -> Result<()> {
-    run(while_toggle, 5347, 6347).await.unwrap();
+pub async fn main_run(while_toggle: bool, opt: Opt) -> Result<()> {
+    run(while_toggle, opt.quic, opt.hb).await.unwrap();
     Ok(())
 } 
 

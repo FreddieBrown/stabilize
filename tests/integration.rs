@@ -86,7 +86,7 @@ async fn test_client_to_server() -> Result<()> {
 
     tokio::spawn(async move {
         tokio::time::delay_for(Duration::new(3, 0)).await;
-        let client = client::QuicClient::new(60612).await.unwrap();
+        let client = client::QuicClient::new(60612, "127.0.0.1:5000").await.unwrap();
         for _ in 1..2 {
             let mut requests = client::generate_futures(&client);
 

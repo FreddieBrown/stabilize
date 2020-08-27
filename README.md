@@ -66,11 +66,41 @@ Architecture diagram [here](https://drive.google.com/file/d/1LoCD13TSaLTHX2yjudH
 
 ### Client
 
-This is a UDP client that wants to communicate with the service using the load balancer. This will send a UDP packet to the web address (which will go to the load balancer) and will expect a response. 
+This is a UDP client that wants to communicate with the service using the load balancer. This will send a UDP packet to the web address (which will go to the load balancer) and will expect a response. An example client can be run using the command `cargo run --bin client`. This also has a number of options associated with it:
+
+```
+stabilize-client 1.0.0
+
+USAGE:
+    client [OPTIONS]
+
+FLAGS:
+    -h, --help       Prints help information
+    -V, --version    Prints version information
+
+OPTIONS:
+        --addr <addr>          Address to connect to [default: 127.0.0.1:5000]
+        --connect <connect>    Port to connect over [default: 60612]
+```
 
 ### Server
 
-This is a regular UDP service. There are multiple servers connected to the load balancer, each of these is running the exact same service. This means that the load balancer can see each of them as providing the same service, so any of them can service a UDP packet in the same way. 
+This is a regular UDP service. There are multiple servers connected to the load balancer, each of these is running the exact same service. This means that the load balancer can see each of them as providing the same service, so any of them can service a UDP packet in the same way. An example server can be run using the commmand `cargo run --bin server`. This also has a number of options associated with it:
+
+```
+stabilize-server 1.0.0
+
+USAGE:
+    client [OPTIONS]
+
+FLAGS:
+    -h, --help       Prints help information
+    -V, --version    Prints version information
+
+OPTIONS:
+        -q, --quic <quic>              Quic port to use for connections [default: 5347]
+        -hb, --heartbeat <hb>    Port to use to send hearbeat over [default: 6347]
+```
 
 ### Stabilize
 

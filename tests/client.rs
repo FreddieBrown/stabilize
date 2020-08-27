@@ -3,6 +3,7 @@ use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use std::{error::Error, future::Future, path::PathBuf};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use structopt::{self, StructOpt};
 
 pub const CUSTOM_PROTO: &[&[u8]] = &[b"cstm-01"];
 
@@ -14,12 +15,13 @@ pub struct QuicClient {
 
 impl QuicClient {
     /// Creates a new QuicClient that does not verify certificates. Used mainly for testing.
-    pub async fn new(port: u16) -> Result<QuicClient> {
-        QuicClient::create(port).await
+    pub async fn new(port: u16, connect: &str) -> Result<QuicClient> {
+        QuicClient::create(port, connect).await
     }
 
     #[doc(hidden)]
-    async fn create(port: u16) -> Result<QuicClient> {
+    async fn create(port: u16, connect: &str) -> Result<QuicClient> {
+        let addr: SocketAddr = connect.parse()?;
 
         let cert_path = PathBuf::from("cert.der");
         let cert = match std::fs::read(&cert_path) {
@@ -33,15 +35,15 @@ impl QuicClient {
 
         client_config.protocols(CUSTOM_PROTO);
 
-        let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
+        let socket_addr: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
         let (endpoint, _) = quinn::Endpoint::builder()
             .bind(&socket_addr)
             .context("(Client) Could not bind client endpoint")?;
 
         let conn = endpoint
-            .connect_with(client_config.build(), &socket_addr, "localhost")?
+            .connect_with(client_config.build(), &addr, "localhost")?
             .await
-            .context(format!("(Client) Could not connect to {}", &socket_addr))?;
+            .context(format!("(Client) Could not connect to {}", &addr))?;
 
         let quinn::NewConnection {
             connection: conn, ..
@@ -130,10 +132,23 @@ pub fn generate_futures(
     requests
 }
 
+
+#[derive(StructOpt, Debug, Clone)]
+#[structopt(name = "stabilize-client")]
+pub struct Opt {
+    /// Port to connect over
+    #[structopt(long = "connect", default_value = "60612")]
+    connect: u16,
+    /// Address to connect to
+    #[structopt(long = "addr", default_value="127.0.0.1:5000")]
+    addr: String 
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
 
-    let client = QuicClient::new(60612).await?;
+    let opt = Opt::from_args();
+    let client = QuicClient::new(opt.connect, &opt.addr[..]).await?;
 
     for _ in 1..2 {
         let mut requests = generate_futures(&client);
