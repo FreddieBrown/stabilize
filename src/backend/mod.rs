@@ -1,8 +1,8 @@
-use std::{error::Error, fs::File, io::prelude::*, net::SocketAddr, path::PathBuf, sync::Arc, collections::HashMap};
+use std::{error::Error, fs::File, io::prelude::*, net::SocketAddr, path::PathBuf, sync::Arc, collections::HashMap, str::from_utf8};
 
 use anyhow::{Context, Result};
 use rand::Rng;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio::sync::RwLock;
@@ -16,6 +16,11 @@ impl Config {
     pub fn new() -> Config {
         Config { servers: vec![] }
     }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct HealthInfo {
+    pub cores: u8
 }
 
 #[derive(Debug)]
@@ -328,7 +333,7 @@ impl ServerPool {
     /// Function to check if a server is alive at the specified addr port. It will send a short
     /// message to the port and will wait for a response. If there is no response, it will assume
     /// the server is dead and will move on.
-    pub async fn heartbeat(addr: SocketAddr, home: SocketAddr) -> i8 {
+    pub async fn heartbeat(addr: SocketAddr, home: SocketAddr) -> Option<HealthInfo> {
         let mut sock = UdpSocket::bind(home).await.expect(&format!(
             "(Health) Couldn't bind socket to address {}",
             addr
@@ -338,20 +343,22 @@ impl ServerPool {
             Err(_) => log::warn!("(Health) Did not connect to address: {}", addr),
         };
         sock.send("a".as_bytes()).await.unwrap();
-        let mut buf = [0; 1];
+        let mut buf = [0; 4096];
         match sock.recv(&mut buf).await {
-            Ok(_) => {
+            Ok(size) => {
                 log::info!(
                     "(Health) Received: {:?}, Server Alive {}",
-                    &buf, &addr
+                    from_utf8(&buf[..size]), &addr
                 );
-                buf[0] as i8
+                let info: HealthInfo = serde_json::from_str(from_utf8(&buf[..size]).unwrap()).unwrap();
+                Some(info)
             }
             Err(_) => {
                 log::warn!("(Health) Server dead: {}", &addr);
-                -1
+                None
             }
         }
+        
     }
 
     /// Function to update a specified server info struct with information about that server
@@ -360,11 +367,16 @@ impl ServerPool {
             "(Health) Changing the status of {}",
             server.get_quic()
         );
-        let status = ServerPool::heartbeat(server.get_hb(), home).await;
-        info.alive = status > -1;
-        info.cores = if info.alive {status as u8} else {0};
+        match ServerPool::heartbeat(server.get_hb(), home).await{
+            Some(data) => {
+                info.alive = true;
+                info.cores = data.cores;
+            },
+            None => {
+                info.alive = false
+            }
+        };
         log::info!("(Health) Alive: {}", info.alive);
-        log::info!("(Health) Cores Available: {}", info.cores);
     }
 
     /// This function will go through a serverpool and check the health of each server

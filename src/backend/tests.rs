@@ -66,20 +66,25 @@ async fn test_heartbeat() {
             Err(_) => panic!("Failure while receiving"),
         };
         println!("(Stabilize Test) Received: {:?}", &buf);
-        sock.send_to("b".as_bytes(), from).await.unwrap();
+        let msg = format!("{{ \"cores\": 8 }}").clone();
+        sock.send_to(&msg.as_bytes(), from).await.unwrap();
     });
     let to_connect: SocketAddr = "127.0.0.1:5002".parse().unwrap();
     let home: SocketAddr = "127.0.0.1:5001".parse().unwrap();
-    let verdict = ServerPool::heartbeat(to_connect, home).await;
-    assert!(verdict > 0);
+    match ServerPool::heartbeat(to_connect, home).await{
+        Some(_) => assert!(true),
+        _ => assert!(false)
+    };
 }
 
 #[tokio::test]
 async fn test_fail_heartbeat() {
     let to_connect: SocketAddr = "127.0.0.1:5006".parse().unwrap();
     let home: SocketAddr = "127.0.0.1:5005".parse().unwrap();
-    let verdict = ServerPool::heartbeat(to_connect, home).await;
-    assert_eq!(verdict, false);
+    match ServerPool::heartbeat(to_connect, home).await{
+        Some(_) => assert!(false),
+        _ => assert!(true)
+    };
 }
 
 #[tokio::test]
@@ -93,7 +98,8 @@ async fn test_check_update_server_info() {
             Err(_) => panic!("(Stabilize Test) Failure while receiving"),
         };
         println!("(Stabilize Test) Received: {:?}", &buf);
-        sock.send_to("b".as_bytes(), from).await.unwrap();
+        let msg = format!("{{ \"cores\": 8 }}").clone();
+        sock.send_to(&msg.as_bytes(), from).await.unwrap();
     });
     let to_connect: Server = Server::new("127.0.0.1:5002".parse().unwrap(), "127.0.0.1:5003".parse().unwrap());
     let home: SocketAddr = "127.0.0.1:5004".parse().unwrap();
@@ -114,7 +120,8 @@ async fn test_check_health() {
             Err(_) => panic!("(Stabilize Test) Failure while receiving"),
         };
         println!("(Stabilize Test) Received: {:?}", &buf);
-        sock.send_to("b".as_bytes(), from).await.unwrap();
+        let msg = format!("{{ \"cores\": 8 }}").clone();
+        sock.send_to(&msg.as_bytes(), from).await.unwrap();
     });
 
     let home: SocketAddr = "127.0.0.1:43594".parse().unwrap();
@@ -146,7 +153,8 @@ async fn test_check_health_runner() {
         Err(_) => panic!("(Stabilize Test) Failure while receiving"),
     };
     println!("(Stabilize Test) Received: {:?}", &buf);
-    sock.send_to("b".as_bytes(), from).await.unwrap();
+    let msg = format!("{{ \"cores\": 8 }}").clone();
+    sock.send_to(&msg.as_bytes(), from).await.unwrap();
     tokio::time::delay_for(Duration::new(1, 0)).await;
     let sp_check = serverpool.clone();
     let (_, serveinfo1) = &sp_check.servers[0];
