@@ -71,7 +71,7 @@ async fn test_heartbeat() {
     let to_connect: SocketAddr = "127.0.0.1:5002".parse().unwrap();
     let home: SocketAddr = "127.0.0.1:5001".parse().unwrap();
     let verdict = ServerPool::heartbeat(to_connect, home).await;
-    assert!(verdict);
+    assert!(verdict > 0);
 }
 
 #[tokio::test]

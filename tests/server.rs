@@ -111,7 +111,8 @@ pub async fn build_and_run_server(quic: u16, hb: u16, server_config: ServerConfi
             // If so then we try to send it back to the original source, waiting
             // until it's writable and we're able to do so.
             if let Some((_, peer)) = to_send {
-                let amt = socket.send_to("a".as_bytes(), &peer).await.unwrap();
+                let cores: u8 = num_cpus::get() as u8;
+                let amt = socket.send_to(&[cores], &peer).await.unwrap();
 
                 println!("(Server Health) Sent {} to {}",amt, peer);
             }

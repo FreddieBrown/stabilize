@@ -148,6 +148,7 @@ impl Algo {
 pub struct ServerInfo {
     pub alive: bool,
     pub connections: u16,
+    pub cores: u8
 }
 
 impl ServerInfo {
@@ -156,6 +157,7 @@ impl ServerInfo {
         ServerInfo {
             alive: true,
             connections: 0,
+            cores: 0
         }
     }
 }
@@ -326,7 +328,7 @@ impl ServerPool {
     /// Function to check if a server is alive at the specified addr port. It will send a short
     /// message to the port and will wait for a response. If there is no response, it will assume
     /// the server is dead and will move on.
-    pub async fn heartbeat(addr: SocketAddr, home: SocketAddr) -> bool {
+    pub async fn heartbeat(addr: SocketAddr, home: SocketAddr) -> i8 {
         let mut sock = UdpSocket::bind(home).await.expect(&format!(
             "(Health) Couldn't bind socket to address {}",
             addr
@@ -343,11 +345,11 @@ impl ServerPool {
                     "(Health) Received: {:?}, Server Alive {}",
                     &buf, &addr
                 );
-                true
+                buf[0] as i8
             }
             Err(_) => {
                 log::warn!("(Health) Server dead: {}", &addr);
-                false
+                -1
             }
         }
     }
@@ -358,8 +360,11 @@ impl ServerPool {
             "(Health) Changing the status of {}",
             server.get_quic()
         );
-        info.alive = ServerPool::heartbeat(server.get_hb(), home).await;
+        let status = ServerPool::heartbeat(server.get_hb(), home).await;
+        info.alive = status > -1;
+        info.cores = if info.alive {status as u8} else {0};
         log::info!("(Health) Alive: {}", info.alive);
+        log::info!("(Health) Cores Available: {}", info.cores);
     }
 
     /// This function will go through a serverpool and check the health of each server
