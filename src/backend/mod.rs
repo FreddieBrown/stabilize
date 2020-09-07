@@ -29,6 +29,7 @@ pub enum Algo {
     RoundRobin,
     LeastConnections,
     WeightedRoundRobin,
+    CpUtilise
 }
 
 impl Algo {
@@ -145,6 +146,29 @@ impl Algo {
                 server_info.connections -= 1;
             }
         }
+    }
+
+    /// Load balancing based on the server which has the most available
+    /// cores free to use. This will mean servers with the most comp space
+    /// will be selected more often as they can handle a greater load.
+    async fn cpu_utilise(pool: &ServerPool) -> &Server {
+        let len = &pool.servers.len();
+        let mut server_place = 0;
+        let mut available_cores = 0;
+        for i in 0..*len {
+            let (server, server_info) = &pool.servers[i];
+            let server_info = server_info.read().await;
+            if !server_info.alive {
+                log::info!("Server is not alive: {}", server.get_quic());
+            } else {
+                if server_info.cores > available_cores {
+                    server_place = i;
+                    available_cores = server_info.cores;
+                }
+            }
+        }
+        let (server, _) = &pool.servers[server_place];
+        server
     }
 }
 
@@ -296,6 +320,7 @@ impl ServerPool {
         match pool.algo {
             Algo::RoundRobin => Algo::round_robin(pool).await,
             Algo::LeastConnections => Algo::least_connections(pool).await,
+            Algo::CpUtilise => Algo::cpu_utilise(pool).await,
             Algo::WeightedRoundRobin => Algo::weighted_round_robin(pool).await,
             _ => panic!("Wrong Algo used to get next Server")
         }

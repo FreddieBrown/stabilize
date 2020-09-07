@@ -38,6 +38,7 @@ pub async fn run(opt: Opt) -> Result<()> {
         Some(algo) => match &algo[..] {
             "wrr" => Algo::WeightedRoundRobin,
             "lc" => Algo::LeastConnections,
+            "cpu" => Algo::CpUtilise,
             _ => Algo::RoundRobin
         },
     _ => Algo::RoundRobin
