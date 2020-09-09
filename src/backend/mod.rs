@@ -1,9 +1,8 @@
 use std::{error::Error, fs::File, io::prelude::*, net::SocketAddr, path::PathBuf, sync::Arc, collections::HashMap, str::from_utf8};
-
+use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio::sync::RwLock;
 
@@ -173,11 +172,20 @@ impl Algo {
 }
 
 /// Function to encapsulate the state of a server
+/// This struct contains information for a server: 
+///     alive: This is a bool that says if the server 
+///            is alive and can receive data
+///     connections: The number of active connections for
+///                  a server.
+///     cores: Number of available cores on the server
+///     ratio: Amount of time heartbeat took / number of bytes
+///            sent
 #[derive(Deserialize, Debug, Copy, Clone)]
 pub struct ServerInfo {
     pub alive: bool,
     pub connections: u16,
-    pub cores: u8
+    pub cores: u8,
+    pub ratio: u128
 }
 
 impl ServerInfo {
@@ -186,7 +194,8 @@ impl ServerInfo {
         ServerInfo {
             alive: true,
             connections: 0,
-            cores: 0
+            cores: 0,
+            ratio: 0
         }
     }
 }
@@ -358,7 +367,7 @@ impl ServerPool {
     /// Function to check if a server is alive at the specified addr port. It will send a short
     /// message to the port and will wait for a response. If there is no response, it will assume
     /// the server is dead and will move on.
-    pub async fn heartbeat(addr: SocketAddr, home: SocketAddr) -> Option<HealthInfo> {
+    pub async fn heartbeat(addr: SocketAddr, home: SocketAddr) -> Option<(HealthInfo, u128)> {
         let mut sock = UdpSocket::bind(home).await.expect(&format!(
             "(Health) Couldn't bind socket to address {}",
             addr
@@ -369,14 +378,18 @@ impl ServerPool {
         };
         sock.send("a".as_bytes()).await.unwrap();
         let mut buf = [0; 4096];
+        let now = Instant::now();
         match sock.recv(&mut buf).await {
             Ok(size) => {
+                let recv = Instant::now();
+                let since = recv.duration_since(now).as_micros();
                 log::info!(
-                    "(Health) Received: {:?}, Server Alive {}",
-                    from_utf8(&buf[..size]), &addr
+                    "(Health) Received: {:?} after {} micros, Server Alive {}",
+                    from_utf8(&buf[..size]), &since,&addr
                 );
                 let info: HealthInfo = serde_json::from_str(from_utf8(&buf[..size]).unwrap()).unwrap();
-                Some(info)
+                let micros_bytes_ratio: u128 = since / (size as u128); 
+                Some((info, micros_bytes_ratio))
             }
             Err(_) => {
                 log::warn!("(Health) Server dead: {}", &addr);
@@ -393,9 +406,10 @@ impl ServerPool {
             server.get_quic()
         );
         match ServerPool::heartbeat(server.get_hb(), home).await{
-            Some(data) => {
+            Some((data, ratio)) => {
                 info.alive = true;
                 info.cores = data.cores;
+                info.ratio = ratio;
             },
             None => {
                 info.alive = false
