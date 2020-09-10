@@ -15,7 +15,7 @@ async fn test_create_from_files_round_robin() {
     let addrs = vec!["127.0.0.1:5347", "127.0.0.1:5348", "127.0.0.1:5349"];
     let serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::RoundRobin);
     for i in 0..3 {
-        let serveraddr = ServerPool::get_next(&serverp).await.get_quic();
+        let serveraddr = ServerPool::get_next(&serverp).await.unwrap().get_quic();
         assert_eq!(Ok(serveraddr), addrs[i].parse());
     }
 }
@@ -24,7 +24,7 @@ async fn test_create_from_files_round_robin() {
 async fn test_create_from_files_weighted_round_robin() {
     let addrs = vec!["127.0.0.1:5347", "127.0.0.1:5348", "127.0.0.1:5349"];
     let serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::WeightedRoundRobin);
-    let serveraddr = ServerPool::get_next(&serverp).await.get_quic();
+    let serveraddr = ServerPool::get_next(&serverp).await.unwrap().get_quic();
     assert_eq!(Ok(serveraddr), addrs[2].parse());
 }
 
@@ -33,7 +33,7 @@ async fn test_create_from_files_least_conns() {
     let addrs = vec!["127.0.0.1:5347", "127.0.0.1:5348", "127.0.0.1:5349"];
     let serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::LeastConnections);
     for i in 0..3 {
-        let serveraddr = ServerPool::get_next(&serverp).await.get_quic();
+        let serveraddr = ServerPool::get_next(&serverp).await.unwrap().get_quic();
         assert_eq!(Ok(serveraddr), addrs[i].parse());
     }
 

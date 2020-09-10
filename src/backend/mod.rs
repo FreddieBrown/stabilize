@@ -28,7 +28,8 @@ pub enum Algo {
     RoundRobin,
     LeastConnections,
     WeightedRoundRobin,
-    CpUtilise
+    CpUtilise,
+    NetworkSelect
 }
 
 impl Algo {
@@ -62,59 +63,83 @@ impl Algo {
 
     /// Load Balancing algorithm. Implementation of the round robin algorithm.
     /// This will cycle through each server and return the next one each time.
-    async fn round_robin(pool: &ServerPool) -> &Server {
+    /// This is a more fault resilient version of the traditional RoundRobin which 
+    /// will not spin indefintely if the current picked server is dead. In that case, 
+    /// it will either pick the next element after r_curr that is alive or will wrap 
+    /// around the list of servers.
+    async fn round_robin(pool: &ServerPool) -> Option<&Server> {
         let mut r_curr = pool.current.write().await;
-        loop {
-            let (server, server_info) = &pool.servers[*r_curr];
+        let len = &pool.servers.len();
+        let mut dead = true;
+        let mut smallest_alive = len.clone();
+        let mut nearest_above = len.clone()*2;
+        for i in 0..*len {
+            let (server, server_info) = &pool.servers[i];
             let server_info = server_info.read().await;
             if !server_info.alive {
                 log::info!("Server is not alive: {}", server.get_quic());
-                *r_curr += 1;
-                if *r_curr == pool.servers.len() {
-                    *r_curr = 0;
-                }
             } else {
-                *r_curr += 1;
-                return server;
+                if i == *r_curr {
+                    *r_curr += 1;
+                    return Some(server)
+                }
+                if i < smallest_alive {
+                    smallest_alive = i;
+                    dead = false
+                } 
+                if (i > *r_curr) && (i - *r_curr <= nearest_above - *r_curr)  {
+                    nearest_above = i;
+                    dead = false
+                }
             }
         }
+        if dead {
+            return None
+        }
+        let mut server_place;
+        if *r_curr < nearest_above {
+            *r_curr = nearest_above + 1;
+            server_place = nearest_above;
+        }
+        else {
+            *r_curr = smallest_alive + 1;
+            server_place = smallest_alive;
+        }
+        let (server, _) = &pool.servers[server_place];
+        Some(server)
     }
 
-    async fn weighted_round_robin(pool: &ServerPool) -> &Server {
+
+    async fn weighted_round_robin(pool: &ServerPool) -> Option<&Server> {
         let mut cw: i16 = 0;
         let server_num = pool.servers.len();
         let mut i = pool.previous.write().await;
         let gcd = pool.gcd.read().await;
         let max = pool.max.read().await;
-        let mut ret_val: Option<&Server> = None;
         loop {
             *i = (*i + 1) % server_num as i16;
             if *i == 0 {
                 cw = cw - (*gcd as i16);
                 if cw <= 0 {
                     cw = *max as i16;
-                    if cw == 0 {
-                        ret_val = None;
-                    }
+
                 }
             }
             let (server, _) = &pool.servers[*i as usize];
             if server.weight as i16 >= cw {
-                ret_val = Some(server);
+                return Some(server);
             }
 
-            match ret_val {
-                Some(s) => return s,
-                _ => (),
-            };
+            
         }
     }
 
     /// Load balancing algorithm. Implementation of the least connections algorithm
     /// This will choose the connection which has the fewest current connections.
-    async fn least_connections(pool: &ServerPool) -> &Server {
+    async fn least_connections(pool: &ServerPool) -> Option<&Server> {
         let len = &pool.servers.len();
         let mut server_place = 0;
+        let mut dead = true;
         let mut least_connections = 255;
         for i in 0..*len {
             let (server, server_info) = &pool.servers[i];
@@ -124,14 +149,18 @@ impl Algo {
             } else {
                 if server_info.connections < least_connections {
                     server_place = i;
+                    dead = false;
                     least_connections = server_info.connections;
                 }
             }
         }
+        if dead {
+            return None
+        }
         let (server, server_info) = &pool.servers[server_place];
         let mut server_info = server_info.write().await;
         server_info.connections += 1;
-        server
+        Some(server)
     }
 
     /// Function to help with least connections cleanup and will find entry for server info and will
@@ -150,9 +179,10 @@ impl Algo {
     /// Load balancing based on the server which has the most available
     /// cores free to use. This will mean servers with the most comp space
     /// will be selected more often as they can handle a greater load.
-    async fn cpu_utilise(pool: &ServerPool) -> &Server {
+    async fn cpu_utilise(pool: &ServerPool) -> Option<&Server> {
         let len = &pool.servers.len();
         let mut server_place = 0;
+        let mut dead = true;
         let mut available_cores = 0;
         for i in 0..*len {
             let (server, server_info) = &pool.servers[i];
@@ -161,13 +191,60 @@ impl Algo {
                 log::info!("Server is not alive: {}", server.get_quic());
             } else {
                 if server_info.cores > available_cores {
+                    dead = false;
                     server_place = i;
                     available_cores = server_info.cores;
                 }
             }
         }
+        if dead {
+            return None
+        }
         let (server, _) = &pool.servers[server_place];
-        server
+        Some(server)
+    }
+
+    /// During hearbeat operations, sometimes connections are 
+    /// faster than others. This algorithm picks a server 
+    /// based on the network connection speed and how much 
+    /// data is transported during this. The faster it is, 
+    /// the lower the ratio.
+    async fn network_select(pool: &ServerPool) -> Option<&Server> {
+        let len = &pool.servers.len();
+        let mut server_place = 0;
+        let mut dead = true;
+        let mut best_ratio = 0;
+        for i in 0..*len {
+            let (server, server_info) = &pool.servers[i];
+            let server_info = server_info.read().await;
+            if !server_info.alive {
+                log::info!("Server is not alive: {}", server.get_quic());
+            } else {
+                if server_info.ratio < best_ratio {
+                    dead = false;
+                    server_place = i;
+                    best_ratio = server_info.ratio;
+                }
+            }
+        }
+        if dead {
+            return None
+        }
+        let (server, _) = &pool.servers[server_place];
+        Some(server)
+    }
+
+    async fn all_servers_dead(pool: &ServerPool) -> bool {
+        let len = &pool.servers.len();
+
+        for i in 0..*len {
+            let (_, server_info) = &pool.servers[i];
+            let server_info = server_info.read().await;
+            if server_info.alive {
+                return false
+            }
+        }
+        true
     }
 }
 
@@ -232,6 +309,7 @@ impl Server {
 
 /// ServerPool struct contains a list of servers and data about them,
 /// as well as the RoundRobin counter for selecting a server.
+#[derive(Debug)]
 pub struct ServerPool {
     pub sessions: RwLock<HashMap<SocketAddr, SocketAddr>>,
     pub servers: Vec<(Server, RwLock<ServerInfo>)>,
@@ -324,13 +402,14 @@ impl ServerPool {
 
     /// Function to get the next Server from the ServerPool.
     /// This is the function which implements the LB algorithms.
-    pub async fn get_next(pool: &ServerPool) -> &Server {
+    pub async fn get_next(pool: &ServerPool) -> Option<&Server> {
         log::info!("Getting a server");
         match pool.algo {
             Algo::RoundRobin => Algo::round_robin(pool).await,
             Algo::LeastConnections => Algo::least_connections(pool).await,
             Algo::CpUtilise => Algo::cpu_utilise(pool).await,
             Algo::WeightedRoundRobin => Algo::weighted_round_robin(pool).await,
+            Algo::NetworkSelect => Algo::network_select(pool).await,
             _ => panic!("Wrong Algo used to get next Server")
         }
     }

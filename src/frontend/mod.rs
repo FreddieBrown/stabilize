@@ -131,7 +131,13 @@ async fn handle_conn(
                 log::info!("Found Address in sticky table: {:?} ", s.get_quic());
                 s},
             _ => {
-                let server_temp = ServerPool::get_next(&serverpool).await;
+                let server_temp = match ServerPool::get_next(&serverpool).await{
+                    Some(s) => s,
+                    None => {
+                        log::error!("No servers alive");
+                        return Ok(())
+                    }
+                };
                 // Here is where the connection should be registered to the sticky sessions hashmap
                 serverpool.client_connect(client, server_temp.get_quic()).await;
                 assert_eq!(serverpool.find_client_server(client).await, Some(server_temp.get_quic()));
@@ -140,7 +146,13 @@ async fn handle_conn(
         };
     }
     else {
-        server_obj = ServerPool::get_next(&serverpool).await;
+        server_obj = match ServerPool::get_next(&serverpool).await{
+            Some(s) => s,
+            None => {
+                log::error!("No servers alive");
+                return Ok(())
+            }
+        };
     }
 
     let server = server_obj.get_quic();
