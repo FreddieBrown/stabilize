@@ -39,6 +39,7 @@ pub async fn run(opt: Opt) -> Result<()> {
             "wrr" => Algo::WeightedRoundRobin,
             "lc" => Algo::LeastConnections,
             "cpu" => Algo::CpUtilise,
+            "ns" => Algo::NetworkSelect,
             _ => Algo::RoundRobin
         },
     _ => Algo::RoundRobin
