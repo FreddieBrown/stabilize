@@ -96,7 +96,7 @@ impl Algo {
         if dead {
             return None
         }
-        let mut server_place;
+        let server_place;
         if *r_curr < nearest_above {
             *r_curr = nearest_above + 1;
             server_place = nearest_above;
@@ -129,7 +129,6 @@ impl Algo {
             if server.weight as i16 >= cw {
                 return Some(server);
             }
-
             
         }
     }
@@ -213,7 +212,7 @@ impl Algo {
         let len = &pool.servers.len();
         let mut server_place = 0;
         let mut dead = true;
-        let mut best_ratio = 0;
+        let mut best_ratio = 1000000000;
         for i in 0..*len {
             let (server, server_info) = &pool.servers[i];
             let server_info = server_info.read().await;
@@ -234,7 +233,7 @@ impl Algo {
         Some(server)
     }
 
-    async fn all_servers_dead(pool: &ServerPool) -> bool {
+    pub async fn all_servers_dead(pool: &ServerPool) -> bool {
         let len = &pool.servers.len();
 
         for i in 0..*len {

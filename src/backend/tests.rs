@@ -21,6 +21,73 @@ async fn test_create_from_files_round_robin() {
 }
 
 #[tokio::test]
+async fn test_round_robin_fail() {
+    let mut serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::RoundRobin);
+    for (_, server_info) in &mut serverp.servers {
+        let mut info = server_info.write().await;
+        info.alive = false;
+    }
+    match ServerPool::get_next(&serverp).await {
+        None => assert!(true),
+        _ => assert!(false),
+    };
+}
+
+
+/// Need to change the Algo for this to pass
+// #[tokio::test]
+// async fn test_weighted_round_robin_fail() {
+//     let mut serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::WeightedRoundRobin);
+//     for (_, server_info) in &mut serverp.servers {
+//         let mut info = server_info.write().await;
+//         info.alive = false;
+//     }
+//     match ServerPool::get_next(&serverp).await {
+//         None => assert!(true),
+//         _ => assert!(false),
+//     };
+// }
+
+#[tokio::test]
+async fn test_least_connections_fail() {
+    let mut serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::LeastConnections);
+    for (_, server_info) in &mut serverp.servers {
+        let mut info = server_info.write().await;
+        info.alive = false;
+    }
+    match ServerPool::get_next(&serverp).await {
+        None => assert!(true),
+        _ => assert!(false),
+    };
+}
+
+#[tokio::test]
+async fn test_cpu_utilise_fail() {
+    let mut serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::CpUtilise);
+    for (_, server_info) in &mut serverp.servers {
+        let mut info = server_info.write().await;
+        info.alive = false;
+    }
+    match ServerPool::get_next(&serverp).await {
+        None => assert!(true),
+        _ => assert!(false),
+    };
+}
+
+#[tokio::test]
+async fn test_network_select_fail() {
+    let mut serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::NetworkSelect);
+    for (_, server_info) in &mut serverp.servers {
+        let mut info = server_info.write().await;
+        info.alive = false;
+    }
+    match ServerPool::get_next(&serverp).await {
+        None => assert!(true),
+        _ => assert!(false),
+    };
+}
+
+#[tokio::test]
 async fn test_create_from_files_weighted_round_robin() {
     let addrs = vec!["127.0.0.1:5347", "127.0.0.1:5348", "127.0.0.1:5349"];
     let serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::WeightedRoundRobin);
@@ -52,6 +119,45 @@ async fn test_create_from_files_least_conns() {
         assert_eq!(server_info.connections, 0);
     }
     
+}
+
+#[tokio::test]
+async fn test_all_servers_dead() {
+    let mut serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::RoundRobin);
+    for (_, server_info) in &mut serverp.servers {
+        let mut info = server_info.write().await;
+        info.alive = false;
+    }
+    assert!(Algo::all_servers_dead(&serverp).await);
+}
+
+ 
+#[tokio::test]
+async fn test_create_from_files_cpu_utilise() {
+    let addrs = vec!["127.0.0.1:5347", "127.0.0.1:5348", "127.0.0.1:5349"];
+    let mut serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::CpUtilise);
+    let mut i = 1;
+    for (_, server_info) in &mut serverp.servers {
+        let mut info = server_info.write().await;
+        info.cores = i;
+        i+=1;
+    }
+    let serveraddr = ServerPool::get_next(&serverp).await.unwrap().get_quic();
+    assert_eq!(Ok(serveraddr), addrs[2].parse());
+}
+
+#[tokio::test]
+async fn test_create_from_files_network_select() {
+    let addrs = vec!["127.0.0.1:5347", "127.0.0.1:5348", "127.0.0.1:5349"];
+    let mut serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::NetworkSelect);
+    let mut i = 4;
+    for (_, server_info) in &mut serverp.servers {
+        let mut info = server_info.write().await;
+        info.ratio = i;
+        i-=1;
+    }
+    let serveraddr = ServerPool::get_next(&serverp).await.unwrap().get_quic();
+    assert_eq!(Ok(serveraddr), addrs[2].parse());
 }
 
 #[tokio::test]
