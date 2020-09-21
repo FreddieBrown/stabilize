@@ -15,10 +15,12 @@ pub async fn build_and_run_server(
     opt: Opt,
     server_config: ServerConfig,
     config: &str,
+    algo: Algo,
+    sticky: bool
 ) -> Result<()> {
     let mut endpoint_builder = quinn::Endpoint::builder();
     endpoint_builder.listen(server_config.clone());
-    let serverpool = Arc::new(ServerPool::create_from_file(config, Algo::RoundRobin));
+    let serverpool = Arc::new(ServerPool::create_from_file(config, algo));
 
     let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), opt.listen);
 
@@ -45,6 +47,7 @@ pub async fn build_and_run_server(
                 conn,
                 serverpool_in.clone(),
                 opt_clone.protocol,
+                sticky
             )
             .unwrap_or_else(move |e| {
                 log::warn!("{}: connection failed: {}", socket_addr, e);
@@ -63,10 +66,12 @@ pub async fn build_and_run_test_server(
     server_config: ServerConfig,
     config: &str,
     protocol: String,
+    algo: Algo, 
+    sticky: bool
 ) -> Result<()> {
     let mut endpoint_builder = quinn::Endpoint::builder();
     endpoint_builder.listen(server_config.clone());
-    let serverpool = Arc::new(ServerPool::create_from_file(config, Algo::RoundRobin));
+    let serverpool = Arc::new(ServerPool::create_from_file(config, algo));
 
     let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
 
@@ -93,6 +98,7 @@ pub async fn build_and_run_test_server(
             conn,
             serverpool_in.clone(),
             protocol.clone(),
+            sticky
         )
         .unwrap_or_else(move |e| log::warn!("{}: connection failed: {}", socket_addr, e))
         .await;
@@ -109,6 +115,7 @@ async fn handle_conn(
     conn: quinn::Connecting,
     serverpool: Arc<ServerPool>,
     protocol: String,
+    sticky: bool
 ) -> Result<()> {
     let quinn::NewConnection {
         connection: connection_obj,
@@ -117,18 +124,36 @@ async fn handle_conn(
     } = conn.await?;
 
     let client = connection_obj.remote_address();
-    let server_obj = match Algo::check_sessions(&serverpool, connection_obj.remote_address()).await{
-        Some(s) => {
-            log::info!("Found Address in sticky table: {:?} ", s.get_quic());
-            s},
-        _ => {
-            let server_temp = ServerPool::get_next(&serverpool).await;
-            // Here is where the connection should be registered to the sticky sessions hashmap
-            serverpool.client_connect(client, server_temp.get_quic()).await;
-            assert_eq!(serverpool.find_client_server(client).await, Some(server_temp.get_quic()));
-            server_temp
-        }
-    };
+    let server_obj;
+    if sticky {
+        server_obj = match Algo::check_sessions(&serverpool, connection_obj.remote_address()).await{
+            Some(s) => {
+                log::info!("Found Address in sticky table: {:?} ", s.get_quic());
+                s},
+            _ => {
+                let server_temp = match ServerPool::get_next(&serverpool).await{
+                    Some(s) => s,
+                    None => {
+                        log::error!("No servers alive");
+                        return Ok(())
+                    }
+                };
+                // Here is where the connection should be registered to the sticky sessions hashmap
+                serverpool.client_connect(client, server_temp.get_quic()).await;
+                assert_eq!(serverpool.find_client_server(client).await, Some(server_temp.get_quic()));
+                server_temp
+            }
+        };
+    }
+    else {
+        server_obj = match ServerPool::get_next(&serverpool).await{
+            Some(s) => s,
+            None => {
+                log::error!("No servers alive");
+                return Ok(())
+            }
+        };
+    }
 
     let server = server_obj.get_quic();
     

@@ -15,16 +15,83 @@ async fn test_create_from_files_round_robin() {
     let addrs = vec!["127.0.0.1:5347", "127.0.0.1:5348", "127.0.0.1:5349"];
     let serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::RoundRobin);
     for i in 0..3 {
-        let serveraddr = ServerPool::get_next(&serverp).await.get_quic();
+        let serveraddr = ServerPool::get_next(&serverp).await.unwrap().get_quic();
         assert_eq!(Ok(serveraddr), addrs[i].parse());
     }
+}
+
+#[tokio::test]
+async fn test_round_robin_fail() {
+    let mut serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::RoundRobin);
+    for (_, server_info) in &mut serverp.servers {
+        let mut info = server_info.write().await;
+        info.alive = false;
+    }
+    match ServerPool::get_next(&serverp).await {
+        None => assert!(true),
+        _ => assert!(false),
+    };
+}
+
+
+/// Need to change the Algo for this to pass
+// #[tokio::test]
+// async fn test_weighted_round_robin_fail() {
+//     let mut serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::WeightedRoundRobin);
+//     for (_, server_info) in &mut serverp.servers {
+//         let mut info = server_info.write().await;
+//         info.alive = false;
+//     }
+//     match ServerPool::get_next(&serverp).await {
+//         None => assert!(true),
+//         _ => assert!(false),
+//     };
+// }
+
+#[tokio::test]
+async fn test_least_connections_fail() {
+    let mut serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::LeastConnections);
+    for (_, server_info) in &mut serverp.servers {
+        let mut info = server_info.write().await;
+        info.alive = false;
+    }
+    match ServerPool::get_next(&serverp).await {
+        None => assert!(true),
+        _ => assert!(false),
+    };
+}
+
+#[tokio::test]
+async fn test_cpu_utilise_fail() {
+    let mut serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::CpUtilise);
+    for (_, server_info) in &mut serverp.servers {
+        let mut info = server_info.write().await;
+        info.alive = false;
+    }
+    match ServerPool::get_next(&serverp).await {
+        None => assert!(true),
+        _ => assert!(false),
+    };
+}
+
+#[tokio::test]
+async fn test_network_select_fail() {
+    let mut serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::NetworkSelect);
+    for (_, server_info) in &mut serverp.servers {
+        let mut info = server_info.write().await;
+        info.alive = false;
+    }
+    match ServerPool::get_next(&serverp).await {
+        None => assert!(true),
+        _ => assert!(false),
+    };
 }
 
 #[tokio::test]
 async fn test_create_from_files_weighted_round_robin() {
     let addrs = vec!["127.0.0.1:5347", "127.0.0.1:5348", "127.0.0.1:5349"];
     let serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::WeightedRoundRobin);
-    let serveraddr = ServerPool::get_next(&serverp).await.get_quic();
+    let serveraddr = ServerPool::get_next(&serverp).await.unwrap().get_quic();
     assert_eq!(Ok(serveraddr), addrs[2].parse());
 }
 
@@ -33,7 +100,7 @@ async fn test_create_from_files_least_conns() {
     let addrs = vec!["127.0.0.1:5347", "127.0.0.1:5348", "127.0.0.1:5349"];
     let serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::LeastConnections);
     for i in 0..3 {
-        let serveraddr = ServerPool::get_next(&serverp).await.get_quic();
+        let serveraddr = ServerPool::get_next(&serverp).await.unwrap().get_quic();
         assert_eq!(Ok(serveraddr), addrs[i].parse());
     }
 
@@ -55,6 +122,45 @@ async fn test_create_from_files_least_conns() {
 }
 
 #[tokio::test]
+async fn test_all_servers_dead() {
+    let mut serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::RoundRobin);
+    for (_, server_info) in &mut serverp.servers {
+        let mut info = server_info.write().await;
+        info.alive = false;
+    }
+    assert!(Algo::all_servers_dead(&serverp).await);
+}
+
+ 
+#[tokio::test]
+async fn test_create_from_files_cpu_utilise() {
+    let addrs = vec!["127.0.0.1:5347", "127.0.0.1:5348", "127.0.0.1:5349"];
+    let mut serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::CpUtilise);
+    let mut i = 1;
+    for (_, server_info) in &mut serverp.servers {
+        let mut info = server_info.write().await;
+        info.cores = i;
+        i+=1;
+    }
+    let serveraddr = ServerPool::get_next(&serverp).await.unwrap().get_quic();
+    assert_eq!(Ok(serveraddr), addrs[2].parse());
+}
+
+#[tokio::test]
+async fn test_create_from_files_network_select() {
+    let addrs = vec!["127.0.0.1:5347", "127.0.0.1:5348", "127.0.0.1:5349"];
+    let mut serverp = ServerPool::create_from_file("test_data/test_config1.toml", Algo::NetworkSelect);
+    let mut i = 4;
+    for (_, server_info) in &mut serverp.servers {
+        let mut info = server_info.write().await;
+        info.ratio = i;
+        i-=1;
+    }
+    let serveraddr = ServerPool::get_next(&serverp).await.unwrap().get_quic();
+    assert_eq!(Ok(serveraddr), addrs[2].parse());
+}
+
+#[tokio::test]
 async fn test_heartbeat() {
     println!("Running HB test");
     tokio::spawn(async move {
@@ -66,20 +172,25 @@ async fn test_heartbeat() {
             Err(_) => panic!("Failure while receiving"),
         };
         println!("(Stabilize Test) Received: {:?}", &buf);
-        sock.send_to("b".as_bytes(), from).await.unwrap();
+        let msg = format!("{{ \"cores\": 8 }}").clone();
+        sock.send_to(&msg.as_bytes(), from).await.unwrap();
     });
     let to_connect: SocketAddr = "127.0.0.1:5002".parse().unwrap();
     let home: SocketAddr = "127.0.0.1:5001".parse().unwrap();
-    let verdict = ServerPool::heartbeat(to_connect, home).await;
-    assert!(verdict);
+    match ServerPool::heartbeat(to_connect, home).await{
+        Some(_) => assert!(true),
+        _ => assert!(false)
+    };
 }
 
 #[tokio::test]
 async fn test_fail_heartbeat() {
     let to_connect: SocketAddr = "127.0.0.1:5006".parse().unwrap();
     let home: SocketAddr = "127.0.0.1:5005".parse().unwrap();
-    let verdict = ServerPool::heartbeat(to_connect, home).await;
-    assert_eq!(verdict, false);
+    match ServerPool::heartbeat(to_connect, home).await{
+        Some(_) => assert!(false),
+        _ => assert!(true)
+    };
 }
 
 #[tokio::test]
@@ -93,7 +204,8 @@ async fn test_check_update_server_info() {
             Err(_) => panic!("(Stabilize Test) Failure while receiving"),
         };
         println!("(Stabilize Test) Received: {:?}", &buf);
-        sock.send_to("b".as_bytes(), from).await.unwrap();
+        let msg = format!("{{ \"cores\": 8 }}").clone();
+        sock.send_to(&msg.as_bytes(), from).await.unwrap();
     });
     let to_connect: Server = Server::new("127.0.0.1:5002".parse().unwrap(), "127.0.0.1:5003".parse().unwrap());
     let home: SocketAddr = "127.0.0.1:5004".parse().unwrap();
@@ -114,7 +226,8 @@ async fn test_check_health() {
             Err(_) => panic!("(Stabilize Test) Failure while receiving"),
         };
         println!("(Stabilize Test) Received: {:?}", &buf);
-        sock.send_to("b".as_bytes(), from).await.unwrap();
+        let msg = format!("{{ \"cores\": 8 }}").clone();
+        sock.send_to(&msg.as_bytes(), from).await.unwrap();
     });
 
     let home: SocketAddr = "127.0.0.1:43594".parse().unwrap();
@@ -146,7 +259,8 @@ async fn test_check_health_runner() {
         Err(_) => panic!("(Stabilize Test) Failure while receiving"),
     };
     println!("(Stabilize Test) Received: {:?}", &buf);
-    sock.send_to("b".as_bytes(), from).await.unwrap();
+    let msg = format!("{{ \"cores\": 8 }}").clone();
+    sock.send_to(&msg.as_bytes(), from).await.unwrap();
     tokio::time::delay_for(Duration::new(1, 0)).await;
     let sp_check = serverpool.clone();
     let (_, serveinfo1) = &sp_check.servers[0];

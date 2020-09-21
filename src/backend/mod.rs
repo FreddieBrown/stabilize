@@ -1,9 +1,8 @@
-use std::{error::Error, fs::File, io::prelude::*, net::SocketAddr, path::PathBuf, sync::Arc, collections::HashMap};
-
+use std::{error::Error, fs::File, io::prelude::*, net::SocketAddr, path::PathBuf, sync::Arc, collections::HashMap, str::from_utf8};
+use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use rand::Rng;
-use serde::Deserialize;
-use std::time::Duration;
+use serde::{Deserialize, Serialize};
 use tokio::net::UdpSocket;
 use tokio::sync::RwLock;
 
@@ -18,11 +17,19 @@ impl Config {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct HealthInfo {
+    pub cores: u8
+}
+
+#[derive(Debug)]
 pub enum Algo {
     CheckSessions,
     RoundRobin,
     LeastConnections,
     WeightedRoundRobin,
+    CpUtilise,
+    NetworkSelect
 }
 
 impl Algo {
@@ -56,59 +63,82 @@ impl Algo {
 
     /// Load Balancing algorithm. Implementation of the round robin algorithm.
     /// This will cycle through each server and return the next one each time.
-    async fn round_robin(pool: &ServerPool) -> &Server {
+    /// This is a more fault resilient version of the traditional RoundRobin which 
+    /// will not spin indefintely if the current picked server is dead. In that case, 
+    /// it will either pick the next element after r_curr that is alive or will wrap 
+    /// around the list of servers.
+    async fn round_robin(pool: &ServerPool) -> Option<&Server> {
         let mut r_curr = pool.current.write().await;
-        loop {
-            let (server, server_info) = &pool.servers[*r_curr];
+        let len = &pool.servers.len();
+        let mut dead = true;
+        let mut smallest_alive = len.clone();
+        let mut nearest_above = len.clone()*2;
+        for i in 0..*len {
+            let (server, server_info) = &pool.servers[i];
             let server_info = server_info.read().await;
             if !server_info.alive {
                 log::info!("Server is not alive: {}", server.get_quic());
-                *r_curr += 1;
-                if *r_curr == pool.servers.len() {
-                    *r_curr = 0;
-                }
             } else {
-                *r_curr += 1;
-                return server;
+                if i == *r_curr {
+                    *r_curr += 1;
+                    return Some(server)
+                }
+                if i < smallest_alive {
+                    smallest_alive = i;
+                    dead = false
+                } 
+                if (i > *r_curr) && (i - *r_curr <= nearest_above - *r_curr)  {
+                    nearest_above = i;
+                    dead = false
+                }
             }
         }
+        if dead {
+            return None
+        }
+        let server_place;
+        if *r_curr < nearest_above {
+            *r_curr = nearest_above + 1;
+            server_place = nearest_above;
+        }
+        else {
+            *r_curr = smallest_alive + 1;
+            server_place = smallest_alive;
+        }
+        let (server, _) = &pool.servers[server_place];
+        Some(server)
     }
 
-    async fn weighted_round_robin(pool: &ServerPool) -> &Server {
+
+    async fn weighted_round_robin(pool: &ServerPool) -> Option<&Server> {
         let mut cw: i16 = 0;
         let server_num = pool.servers.len();
         let mut i = pool.previous.write().await;
         let gcd = pool.gcd.read().await;
         let max = pool.max.read().await;
-        let mut ret_val: Option<&Server> = None;
         loop {
             *i = (*i + 1) % server_num as i16;
             if *i == 0 {
                 cw = cw - (*gcd as i16);
                 if cw <= 0 {
                     cw = *max as i16;
-                    if cw == 0 {
-                        ret_val = None;
-                    }
+
                 }
             }
             let (server, _) = &pool.servers[*i as usize];
             if server.weight as i16 >= cw {
-                ret_val = Some(server);
+                return Some(server);
             }
-
-            match ret_val {
-                Some(s) => return s,
-                _ => (),
-            };
+            
         }
     }
 
     /// Load balancing algorithm. Implementation of the least connections algorithm
     /// This will choose the connection which has the fewest current connections.
-    async fn least_connections(pool: &ServerPool) -> &Server {
+    async fn least_connections(pool: &ServerPool) -> Option<&Server> {
         let len = &pool.servers.len();
         let mut server_place = 0;
+        let mut dead = true;
         let mut least_connections = 255;
         for i in 0..*len {
             let (server, server_info) = &pool.servers[i];
@@ -118,14 +148,18 @@ impl Algo {
             } else {
                 if server_info.connections < least_connections {
                     server_place = i;
+                    dead = false;
                     least_connections = server_info.connections;
                 }
             }
         }
+        if dead {
+            return None
+        }
         let (server, server_info) = &pool.servers[server_place];
         let mut server_info = server_info.write().await;
         server_info.connections += 1;
-        server
+        Some(server)
     }
 
     /// Function to help with least connections cleanup and will find entry for server info and will
@@ -140,13 +174,94 @@ impl Algo {
             }
         }
     }
+
+    /// Load balancing based on the server which has the most available
+    /// cores free to use. This will mean servers with the most comp space
+    /// will be selected more often as they can handle a greater load.
+    async fn cpu_utilise(pool: &ServerPool) -> Option<&Server> {
+        let len = &pool.servers.len();
+        let mut server_place = 0;
+        let mut dead = true;
+        let mut available_cores = 0;
+        for i in 0..*len {
+            let (server, server_info) = &pool.servers[i];
+            let server_info = server_info.read().await;
+            if !server_info.alive {
+                log::info!("Server is not alive: {}", server.get_quic());
+            } else {
+                if server_info.cores > available_cores {
+                    dead = false;
+                    server_place = i;
+                    available_cores = server_info.cores;
+                }
+            }
+        }
+        if dead {
+            return None
+        }
+        let (server, _) = &pool.servers[server_place];
+        Some(server)
+    }
+
+    /// During hearbeat operations, sometimes connections are 
+    /// faster than others. This algorithm picks a server 
+    /// based on the network connection speed and how much 
+    /// data is transported during this. The faster it is, 
+    /// the lower the ratio.
+    async fn network_select(pool: &ServerPool) -> Option<&Server> {
+        let len = &pool.servers.len();
+        let mut server_place = 0;
+        let mut dead = true;
+        let mut best_ratio = 1000000000;
+        for i in 0..*len {
+            let (server, server_info) = &pool.servers[i];
+            let server_info = server_info.read().await;
+            if !server_info.alive {
+                log::info!("Server is not alive: {}", server.get_quic());
+            } else {
+                if server_info.ratio < best_ratio {
+                    dead = false;
+                    server_place = i;
+                    best_ratio = server_info.ratio;
+                }
+            }
+        }
+        if dead {
+            return None
+        }
+        let (server, _) = &pool.servers[server_place];
+        Some(server)
+    }
+
+    pub async fn all_servers_dead(pool: &ServerPool) -> bool {
+        let len = &pool.servers.len();
+
+        for i in 0..*len {
+            let (_, server_info) = &pool.servers[i];
+            let server_info = server_info.read().await;
+            if server_info.alive {
+                return false
+            }
+        }
+        true
+    }
 }
 
 /// Function to encapsulate the state of a server
+/// This struct contains information for a server: 
+///     alive: This is a bool that says if the server 
+///            is alive and can receive data
+///     connections: The number of active connections for
+///                  a server.
+///     cores: Number of available cores on the server
+///     ratio: Amount of time heartbeat took / number of bytes
+///            sent
 #[derive(Deserialize, Debug, Copy, Clone)]
 pub struct ServerInfo {
     pub alive: bool,
     pub connections: u16,
+    pub cores: u8,
+    pub ratio: u128
 }
 
 impl ServerInfo {
@@ -155,6 +270,8 @@ impl ServerInfo {
         ServerInfo {
             alive: true,
             connections: 0,
+            cores: 0,
+            ratio: 0
         }
     }
 }
@@ -191,6 +308,7 @@ impl Server {
 
 /// ServerPool struct contains a list of servers and data about them,
 /// as well as the RoundRobin counter for selecting a server.
+#[derive(Debug)]
 pub struct ServerPool {
     pub sessions: RwLock<HashMap<SocketAddr, SocketAddr>>,
     pub servers: Vec<(Server, RwLock<ServerInfo>)>,
@@ -283,12 +401,14 @@ impl ServerPool {
 
     /// Function to get the next Server from the ServerPool.
     /// This is the function which implements the LB algorithms.
-    pub async fn get_next(pool: &ServerPool) -> &Server {
+    pub async fn get_next(pool: &ServerPool) -> Option<&Server> {
         log::info!("Getting a server");
         match pool.algo {
             Algo::RoundRobin => Algo::round_robin(pool).await,
             Algo::LeastConnections => Algo::least_connections(pool).await,
+            Algo::CpUtilise => Algo::cpu_utilise(pool).await,
             Algo::WeightedRoundRobin => Algo::weighted_round_robin(pool).await,
+            Algo::NetworkSelect => Algo::network_select(pool).await,
             _ => panic!("Wrong Algo used to get next Server")
         }
     }
@@ -325,7 +445,7 @@ impl ServerPool {
     /// Function to check if a server is alive at the specified addr port. It will send a short
     /// message to the port and will wait for a response. If there is no response, it will assume
     /// the server is dead and will move on.
-    pub async fn heartbeat(addr: SocketAddr, home: SocketAddr) -> bool {
+    pub async fn heartbeat(addr: SocketAddr, home: SocketAddr) -> Option<(HealthInfo, u128)> {
         let mut sock = UdpSocket::bind(home).await.expect(&format!(
             "(Health) Couldn't bind socket to address {}",
             addr
@@ -335,20 +455,26 @@ impl ServerPool {
             Err(_) => log::warn!("(Health) Did not connect to address: {}", addr),
         };
         sock.send("a".as_bytes()).await.unwrap();
-        let mut buf = [0; 1];
+        let mut buf = [0; 4096];
+        let now = Instant::now();
         match sock.recv(&mut buf).await {
-            Ok(_) => {
+            Ok(size) => {
+                let recv = Instant::now();
+                let since = recv.duration_since(now).as_micros();
                 log::info!(
-                    "(Health) Received: {:?}, Server Alive {}",
-                    &buf, &addr
+                    "(Health) Received: {:?} after {} micros, Server Alive {}",
+                    from_utf8(&buf[..size]), &since,&addr
                 );
-                true
+                let info: HealthInfo = serde_json::from_str(from_utf8(&buf[..size]).unwrap()).unwrap();
+                let micros_bytes_ratio: u128 = since / (size as u128); 
+                Some((info, micros_bytes_ratio))
             }
             Err(_) => {
                 log::warn!("(Health) Server dead: {}", &addr);
-                false
+                None
             }
         }
+        
     }
 
     /// Function to update a specified server info struct with information about that server
@@ -357,7 +483,16 @@ impl ServerPool {
             "(Health) Changing the status of {}",
             server.get_quic()
         );
-        info.alive = ServerPool::heartbeat(server.get_hb(), home).await;
+        match ServerPool::heartbeat(server.get_hb(), home).await{
+            Some((data, ratio)) => {
+                info.alive = true;
+                info.cores = data.cores;
+                info.ratio = ratio;
+            },
+            None => {
+                info.alive = false
+            }
+        };
         log::info!("(Health) Alive: {}", info.alive);
     }
 

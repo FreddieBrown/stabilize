@@ -6,16 +6,12 @@ use structopt::{self, StructOpt};
 pub mod backend;
 pub mod frontend;
 
+use backend::Algo;
+
 // From Quinn example
 #[derive(StructOpt, Debug, Clone)]
 #[structopt(name = "stabilize")]
 pub struct Opt {
-    /// file to log TLS keys to for debugging
-    #[structopt(long = "keylog")]
-    keylog: bool,
-    /// Enable stateless retries
-    #[structopt(long = "stateless-retry")]
-    stateless_retry: bool,
     /// Address to listen on
     #[structopt(long = "listen", default_value = "4433")]
     listen: u16,
@@ -28,10 +24,27 @@ pub struct Opt {
     /// Specify Protocol being used by stabilize
     #[structopt(long = "protocol", short = "p", default_value = "cstm-01")]
     protocol: String,
+    /// LB Algo to use
+    #[structopt(long="algo")]
+    algo: Option<String>,
+    /// Sticky Sessions switch
+    #[structopt(long="sticky", short="s")]
+    sticky: bool
 }
 
 #[tokio::main]
 pub async fn run(opt: Opt) -> Result<()> {
+    let algo = match &opt.algo {
+        Some(algo) => match &algo[..] {
+            "wrr" => Algo::WeightedRoundRobin,
+            "lc" => Algo::LeastConnections,
+            "cpu" => Algo::CpUtilise,
+            "ns" => Algo::NetworkSelect,
+            _ => Algo::RoundRobin
+        },
+    _ => Algo::RoundRobin
+    };
+
     let server_config = config_builder(
         opt.cert.clone(),
         opt.key.clone(),
@@ -41,7 +54,9 @@ pub async fn run(opt: Opt) -> Result<()> {
     tokio::try_join!(frontend::build_and_run_server(
         opt.clone(),
         server_config.clone(),
-        "./.config.toml"
+        "./.config.toml",
+        algo,
+        opt.sticky
     ))?;
 
     log::info!("(Stabilize) shutting down...");
